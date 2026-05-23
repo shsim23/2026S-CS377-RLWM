@@ -1,0 +1,213 @@
+from __future__ import annotations
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+import gymnasium as gym
+
+from .constants import Action, ACTION_DELTAS, STATE_DIM
+from .layout import Layout, LayoutParser
+from .state import GameState, StateBuilder
+from .ghost import GhostController
+from .reward import RewardComputer, RewardConfig, StepEvent
+from .renderer import Renderer
+
+
+class PacmanEnv(gym.Env):
+    metadata = {"render_modes": ["human", "rgb_array", "ansi"], "render_fps": 10}
+
+    def __init__(
+        self,
+        layout_path: str,
+        num_ghosts: int = 1,
+        ghost_epsilon: float = 0.2,
+        ghost_policy: str = "chase_stochastic",
+        power_pellet_enabled: bool = False,
+        frightened_duration: int = 30,
+        max_steps: int = 500,
+        reward_config: Optional[RewardConfig] = None,
+        render_mode: Optional[str] = None,
+    ):
+        super().__init__()
+        self.layout: Layout = LayoutParser.from_file(layout_path)
+        self.num_ghosts = min(num_ghosts, len(self.layout.ghost_starts))
+        self.ghost_epsilon = ghost_epsilon
+        self.ghost_policy = ghost_policy
+        self.power_pellet_enabled = power_pellet_enabled
+        self.frightened_duration = frightened_duration
+        self.max_steps = max_steps
+        self.reward_cfg = reward_config or RewardConfig()
+        self.render_mode = render_mode
+
+        self.observation_space = gym.spaces.Box(
+            low=-1.0, high=1.0, shape=(STATE_DIM,), dtype=np.float32
+        )
+        self.action_space = gym.spaces.Discrete(5)
+
+        self._reward_computer = RewardComputer(self.reward_cfg)
+        self._state_builder = StateBuilder(self.layout, self.num_ghosts)
+        self._renderer = Renderer(self.layout, render_mode)
+
+        # Runtime state (initialized in reset)
+        self.game_state: Optional[GameState] = None
+        self.np_random: np.random.Generator = np.random.default_rng()
+        self._ghost_controller: Optional[GhostController] = None
+        self._cumulative_reward: float = 0.0
+        self._last_event: Optional[StepEvent] = None
+
+    # ------------------------------------------------------------------ #
+    def reset(self, seed=None, options=None) -> Tuple[np.ndarray, dict]:
+        super().reset(seed=seed)
+        if seed is not None:
+            self.np_random = np.random.default_rng(seed)
+
+        if self.ghost_policy == "chase_stochastic":
+            self._ghost_controller = GhostController(self.ghost_epsilon, self.np_random)
+        elif self.ghost_policy == "chase":
+            self._ghost_controller = GhostController(0.0, self.np_random)
+        else:  # random
+            self._ghost_controller = GhostController(1.0, self.np_random)
+
+        self.game_state = self._init_game_state()
+        self._cumulative_reward = 0.0
+        self._last_event = None
+
+        obs = self._state_builder.build(self.game_state)
+        return obs, self._build_info()
+
+    def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, dict]:
+        assert self.game_state is not None, "Call reset() before step()"
+
+        gs = self.game_state
+        prev_gs = gs.copy()
+
+        # 1. Move Pac-Man
+        self._move_pacman(action)
+
+        # 2. Intermediate collision check (Pac-Man walked onto a ghost)
+        event = StepEvent()
+        self._check_collision(event)
+
+        # 3. Pac-Man consumes items
+        if not event.died:
+            self._consume_items(event)
+
+        # 4. Ghosts move
+        if not event.died:
+            self._move_ghosts(event)
+
+        # 5. Post-move collision check (ghost walked onto Pac-Man)
+        if not event.died:
+            self._check_collision(event)
+
+        # 6. Win condition
+        if not event.died and gs.food_mask.sum() == 0:
+            event.won = True
+
+        # 7. Power timer tick
+        if gs.power_mode_timer > 0:
+            gs.power_mode_timer -= 1
+
+        # 8. Reward
+        reward = self._reward_computer.compute(event)
+        self._cumulative_reward += reward
+
+        # 9. Termination
+        gs.step_count += 1
+        terminated = event.died or event.won
+        truncated = gs.step_count >= self.max_steps
+        gs.done = terminated or truncated
+
+        self._last_event = event
+        obs = self._state_builder.build(gs)
+        info = self._build_info(event)
+        return obs, reward, terminated, truncated, info
+
+    def render(self):
+        if self.game_state is None:
+            return None
+        return self._renderer.render(self.game_state)
+
+    def close(self):
+        self._renderer.close()
+
+    # ------------------------------------------------------------------ #
+    def _init_game_state(self) -> GameState:
+        padded = self.layout.to_padded_arrays()
+        food = self.layout.initial_food.copy()
+        if not self.power_pellet_enabled:
+            # Treat power pellets as regular pellets (eat them but no effect)
+            food = food | self.layout.initial_power
+
+        return GameState(
+            pacman_pos=self.layout.pacman_start,
+            ghost_positions=[self.layout.ghost_starts[i] for i in range(self.num_ghosts)],
+            ghost_alive=[True] * self.num_ghosts,
+            food_mask=food,
+            power_mode_timer=0,
+            step_count=0,
+            done=False,
+        )
+
+    def _move_pacman(self, action: int) -> None:
+        gs = self.game_state
+        dx, dy = ACTION_DELTAS[Action(action)]
+        nx, ny = gs.pacman_pos[0] + dx, gs.pacman_pos[1] + dy
+        if 0 <= ny < self.layout.height and 0 <= nx < self.layout.width:
+            if not self.layout.walls[ny, nx]:
+                gs.pacman_pos = (nx, ny)
+
+    def _move_ghosts(self, event: StepEvent) -> None:
+        gs = self.game_state
+        walls = self.layout.walls
+        new_positions = list(gs.ghost_positions)
+        for i in range(self.num_ghosts):
+            if not gs.ghost_alive[i]:
+                continue
+            new_positions[i] = self._ghost_controller.step(
+                gs.ghost_positions[i], gs.pacman_pos, walls
+            )
+        gs.ghost_positions = new_positions
+
+    def _consume_items(self, event: StepEvent) -> None:
+        gs = self.game_state
+        px, py = gs.pacman_pos
+        if gs.food_mask[py, px]:
+            gs.food_mask[py, px] = False
+            event.ate_pellet = True
+        elif self.power_pellet_enabled and self.layout.initial_power[py, px]:
+            # Power pellet consumed
+            event.ate_power = True
+            gs.power_mode_timer = self.frightened_duration
+
+    def _check_collision(self, event: StepEvent) -> None:
+        gs = self.game_state
+        px, py = gs.pacman_pos
+        for i in range(self.num_ghosts):
+            if not gs.ghost_alive[i]:
+                continue
+            gx, gy = gs.ghost_positions[i]
+            if (gx, gy) == (px, py):
+                if gs.power_mode_timer > 0:
+                    gs.ghost_alive[i] = False
+                    event.ate_ghosts += 1
+                else:
+                    event.died = True
+
+    def _build_info(self, event: Optional[StepEvent] = None) -> dict:
+        gs = self.game_state
+        if gs is None:
+            return {}
+        ev = event or StepEvent()
+        return {
+            "step": gs.step_count,
+            "score": self._cumulative_reward,
+            "pellets_remaining": int(gs.food_mask.sum()),
+            "event": {
+                "ate_pellet": ev.ate_pellet,
+                "ate_power": ev.ate_power,
+                "ate_ghosts": ev.ate_ghosts,
+                "died": ev.died,
+                "won": ev.won,
+            },
+            "layout_id": self.layout.name,
+        }

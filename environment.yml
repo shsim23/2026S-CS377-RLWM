@@ -1,0 +1,15 @@
+name: pacman-wm
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - gymnasium>=0.29.0
+      - torch>=2.0
+      - numpy>=1.24
+      - pygame>=2.5
+      - pyyaml>=6.0
+      - wandb>=0.17
+      - pytest>=8.0
