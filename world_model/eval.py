@@ -15,12 +15,15 @@ def evaluate_k_step_rollout(
     val_buffer: "SequenceReplayBuffer",
     K: int = 10,
     N: int = 100,
+    seed: int = 0,
 ) -> dict:
     latent_errs, reward_errs, done_errs, sigma_values = [], [], [], []
 
-    for traj in val_buffer.sample_trajectories(N):
-        states  = torch.from_numpy(traj["states"]).float()
-        actions = torch.from_numpy(traj["actions"]).long()
+    device = next(ensemble.parameters()).device
+
+    for traj in val_buffer.sample_trajectories(N, seed=seed):
+        states  = torch.from_numpy(traj["states"]).float().to(device)
+        actions = torch.from_numpy(traj["actions"]).long().to(device)
         rewards = traj["rewards"]
         dones   = traj["dones"]
         T = len(states)

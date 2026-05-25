@@ -57,6 +57,14 @@ def mixed_policy(env: PacmanEnv, p_greedy: float = 0.1) -> int:
     return int(env.action_space.sample())
 
 
+def make_policy(name: str, p_greedy: float):
+    if name == "random":
+        return lambda e: int(e.action_space.sample())
+    if name == "mixed":
+        return lambda e: mixed_policy(e, p_greedy=p_greedy)
+    raise ValueError(f"Unknown policy: {name}")
+
+
 # ------------------------------------------------------------------ #
 def collect_episode(env: PacmanEnv, policy, seed: int):
     obs, info = env.reset(seed=seed)
@@ -91,20 +99,32 @@ def main():
     parser.add_argument("--layout", required=True)
     parser.add_argument("--num-transitions", type=int, default=70000)
     parser.add_argument("--policy", default="mixed", choices=["random", "mixed"])
+    parser.add_argument("--p-greedy", type=float, default=0.1,
+                        help="Probability of greedy-toward-pellet action in mixed policy.")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--val-fraction", type=float, default=0.1)
+    parser.add_argument("--randomize-spawn", action="store_true",
+                        help="Randomize Pac-Man and ghost start positions on every reset "
+                             "(uniform over walkable cells; min Manhattan distance enforced).")
+    parser.add_argument("--min-spawn-dist", type=int, default=2,
+                        help="Min Manhattan distance between Pac-Man and each ghost at spawn.")
+    parser.add_argument("--num-ghosts", type=int, default=1)
+    parser.add_argument("--ghost-epsilon", type=float, default=0.2)
     args = parser.parse_args()
 
     out = Path(args.output_dir)
     (out / "train").mkdir(parents=True, exist_ok=True)
     (out / "val").mkdir(parents=True, exist_ok=True)
 
-    env = PacmanEnv(layout_path=args.layout)
-    if args.policy == "random":
-        policy = lambda e: int(e.action_space.sample())
-    else:
-        policy = mixed_policy
+    env = PacmanEnv(
+        layout_path=args.layout,
+        num_ghosts=args.num_ghosts,
+        ghost_epsilon=args.ghost_epsilon,
+        randomize_spawn=args.randomize_spawn,
+        min_spawn_dist=args.min_spawn_dist,
+    )
+    policy = make_policy(args.policy, p_greedy=args.p_greedy)
 
     episodes = []
     total = 0

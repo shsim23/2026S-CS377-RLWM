@@ -26,10 +26,17 @@ class PacmanEnv(gym.Env):
         max_steps: int = 500,
         reward_config: Optional[RewardConfig] = None,
         render_mode: Optional[str] = None,
+        randomize_spawn: bool = False,
+        min_spawn_dist: int = 2,
     ):
         super().__init__()
         self.layout: Layout = LayoutParser.from_file(layout_path)
-        self.num_ghosts = min(num_ghosts, len(self.layout.ghost_starts))
+        # When randomizing spawn we are no longer bound by the number of 'G'
+        # markers in the layout — any walkable cell can host a ghost.
+        if randomize_spawn:
+            self.num_ghosts = num_ghosts
+        else:
+            self.num_ghosts = min(num_ghosts, len(self.layout.ghost_starts))
         self.ghost_epsilon = ghost_epsilon
         self.ghost_policy = ghost_policy
         self.power_pellet_enabled = power_pellet_enabled
@@ -37,6 +44,14 @@ class PacmanEnv(gym.Env):
         self.max_steps = max_steps
         self.reward_cfg = reward_config or RewardConfig()
         self.render_mode = render_mode
+        self.randomize_spawn = randomize_spawn
+        self.min_spawn_dist = min_spawn_dist
+        self._walkable_cells: List[Tuple[int, int]] = [
+            (x, y)
+            for y in range(self.layout.height)
+            for x in range(self.layout.width)
+            if not self.layout.walls[y, x]
+        ]
 
         self.observation_space = gym.spaces.Box(
             low=-1.0, high=1.0, shape=(STATE_DIM,), dtype=np.float32
@@ -132,21 +147,65 @@ class PacmanEnv(gym.Env):
 
     # ------------------------------------------------------------------ #
     def _init_game_state(self) -> GameState:
-        padded = self.layout.to_padded_arrays()
         food = self.layout.initial_food.copy()
         if not self.power_pellet_enabled:
             # Treat power pellets as regular pellets (eat them but no effect)
             food = food | self.layout.initial_power
 
+        if self.randomize_spawn:
+            pacman_pos, ghost_positions = self._sample_random_spawn()
+            # Match the original-layout convention that the Pac-Man cell has no
+            # pellet, so the very first step doesn't auto-consume a pellet.
+            px, py = pacman_pos
+            food[py, px] = False
+        else:
+            pacman_pos = self.layout.pacman_start
+            ghost_positions = [self.layout.ghost_starts[i] for i in range(self.num_ghosts)]
+
         return GameState(
-            pacman_pos=self.layout.pacman_start,
-            ghost_positions=[self.layout.ghost_starts[i] for i in range(self.num_ghosts)],
+            pacman_pos=pacman_pos,
+            ghost_positions=ghost_positions,
             ghost_alive=[True] * self.num_ghosts,
             food_mask=food,
             power_mode_timer=0,
             step_count=0,
             done=False,
         )
+
+    def _sample_random_spawn(self) -> Tuple[Tuple[int, int], List[Tuple[int, int]]]:
+        """Sample Pac-Man + ghost positions uniformly over walkable cells.
+
+        Pac-Man is uniform over all walkable cells. Each ghost is uniform over
+        walkable cells not already occupied AND at Manhattan distance >=
+        min_spawn_dist from Pac-Man. If that constraint cannot be satisfied
+        (very small/cramped layouts), the distance constraint is relaxed but
+        cells remain distinct.
+        """
+        walkable = self._walkable_cells
+        if len(walkable) < 1 + self.num_ghosts:
+            raise ValueError(
+                f"Layout '{self.layout.name}' has only {len(walkable)} walkable cells; "
+                f"need at least {1 + self.num_ghosts}."
+            )
+
+        idx = int(self.np_random.integers(len(walkable)))
+        pacman_pos = walkable[idx]
+
+        used = {pacman_pos}
+        ghost_positions: List[Tuple[int, int]] = []
+        for _ in range(self.num_ghosts):
+            candidates = [
+                c for c in walkable
+                if c not in used
+                and (abs(c[0] - pacman_pos[0]) + abs(c[1] - pacman_pos[1])) >= self.min_spawn_dist
+            ]
+            if not candidates:  # Fallback: any unused walkable cell
+                candidates = [c for c in walkable if c not in used]
+            idx = int(self.np_random.integers(len(candidates)))
+            ghost_positions.append(candidates[idx])
+            used.add(candidates[idx])
+
+        return pacman_pos, ghost_positions
 
     def _move_pacman(self, action: int) -> None:
         gs = self.game_state

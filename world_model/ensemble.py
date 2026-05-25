@@ -66,8 +66,12 @@ class EnsembleWorldModel(nn.Module):
         r_stack = torch.stack(r_symlogs, dim=1)
         d_stack = torch.stack(d_probs, dim=1)
 
-        z_var_per_dim = z_stack.var(dim=1)
-        sigma = torch.sqrt(z_var_per_dim.mean(dim=-1) + 1e-8)
+        if self.K > 1:
+            z_var_per_dim = z_stack.var(dim=1)
+            sigma = torch.sqrt(z_var_per_dim.mean(dim=-1) + 1e-8)
+        else:
+            # single-model "ensemble" — disagreement is undefined; report 0
+            sigma = torch.zeros(z_stack.shape[0], device=z_stack.device)
 
         return {
             "z_next": z_stack.mean(dim=1),

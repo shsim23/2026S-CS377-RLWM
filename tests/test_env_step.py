@@ -105,3 +105,48 @@ def test_action_noop():
     env.step(Action.NOOP)
     # Pac-Man shouldn't move
     assert env.game_state.pacman_pos == pos_before
+
+
+def test_randomize_spawn_diverse_and_legal():
+    """Spawn positions should: vary across seeds, never be on walls, and respect min_spawn_dist."""
+    layout = """\
+%%%%%%%%%
+%P......%
+%.%%%.%.%
+%.......%
+%.%.%%%.%
+%......G%
+%%%%%%%%%
+"""
+    env = make_env(layout, randomize_spawn=True, min_spawn_dist=3, num_ghosts=1)
+    pac_positions, ghost_positions = set(), set()
+    for s in range(50):
+        env.reset(seed=s)
+        gs = env.game_state
+        px, py = gs.pacman_pos
+        gx, gy = gs.ghost_positions[0]
+        assert not env.layout.walls[py, px], f"Pac-Man on wall at seed {s}"
+        assert not env.layout.walls[gy, gx], f"Ghost on wall at seed {s}"
+        assert abs(px - gx) + abs(py - gy) >= 3, f"min_spawn_dist violated at seed {s}"
+        pac_positions.add((px, py))
+        ghost_positions.add((gx, gy))
+    # Expect at least 5 distinct Pac-Man spawn cells and 5 distinct ghost cells
+    assert len(pac_positions) >= 5
+    assert len(ghost_positions) >= 5
+
+
+def test_randomize_spawn_reproducible():
+    env1 = make_env(randomize_spawn=True)
+    env2 = make_env(randomize_spawn=True)
+    env1.reset(seed=123)
+    env2.reset(seed=123)
+    assert env1.game_state.pacman_pos == env2.game_state.pacman_pos
+    assert env1.game_state.ghost_positions == env2.game_state.ghost_positions
+
+
+def test_randomize_spawn_off_uses_layout_start():
+    """Default behaviour (randomize_spawn=False) must respect the layout's P/G."""
+    env = make_env()  # SIMPLE layout: P at (1,1), G at (3,1)
+    env.reset(seed=0)
+    assert env.game_state.pacman_pos == (1, 1)
+    assert env.game_state.ghost_positions[0] == (3, 1)

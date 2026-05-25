@@ -51,8 +51,9 @@ class SequenceReplayBuffer:
             "dones":   torch.from_numpy(np.stack(dones_b)),
         }
 
-    def sample_trajectories(self, N: int) -> List[dict]:
-        chosen = np.random.choice(
+    def sample_trajectories(self, N: int, seed: Optional[int] = None) -> List[dict]:
+        rng = np.random.RandomState(seed) if seed is not None else np.random
+        chosen = rng.choice(
             self.episode_files, size=min(N, len(self.episode_files)), replace=False
         )
         trajs = []
