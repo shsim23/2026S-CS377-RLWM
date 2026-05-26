@@ -98,6 +98,81 @@ python scripts/play_human.py  --layout layouts/train/my_new_map.txt
 
 ---
 
+## 2.5 무작위 맵 자동 생성 (`maze_generator/`)
+
+World model이 *general* state transition을 학습하도록, per-map training 대신 다양한 21×21 맵을 자동 생성해서 데이터로 쓸 수 있습니다. 설계 사양은 [`maze_generator_spec.md`](maze_generator_spec.md)를 참고하세요.
+
+### 2.5.1 한 줄 사용
+
+```python
+from maze_generator import generate_maze, ascii_render, render_image
+
+maze = generate_maze(seed=42)        # dict (spec §7.2 형식)
+print(ascii_render(maze))            # 콘솔에 ASCII로 보기
+render_image(maze, "out.png")        # PNG로 저장
+```
+
+반환되는 `maze` dict의 주요 필드:
+
+| 키 | 형식 | 의미 |
+|---|---|---|
+| `walls` | `np.ndarray (21,21) bool` | True = 벽 |
+| `pacman_pos` | `(row, col)` | 항상 `(14, 10)` |
+| `ghost_positions` | `list[(r, c)]` | ghost house 내부 좌표 |
+| `food_positions` | `list[(r, c)]` | 펠릿 위치들 (variable length) |
+| `ghost_only_tiles` | `list[(r, c)]` | gate 좌표 |
+| `ghost_house_interior` | `list[(r, c)]` | 고스트 하우스 walkable |
+| `seed`, `width`, `height` | — | 메타 |
+| `_tile_grid` | `np.ndarray (21,21) int8` | 디버그용 raw 타일 코드 (벽=0, path=1, gate=2, interior=3) |
+
+### 2.5.2 주요 파라미터
+
+```python
+generate_maze(
+    connectivity = 0.3,   # cycle 밀도 [0=tree, 1=fully connected]
+    num_ghosts   = 1,     # 1, 2, 3 — 고스트 하우스 안에 자동 배치
+    seed         = None,  # 재현용. None이면 매번 새 맵
+)
+```
+
+`width`/`height`/`symmetric`/`ghost_house`는 Phase 1에서 고정. Warp tunnel과 power pellet (`num_warp_tunnels`, `num_power_pellets`)은 Phase 3/4용 인자만 마련돼 있고 0 외 값을 주면 `NotImplementedError`.
+
+### 2.5.3 CLI 데모 — 예시 맵 일괄 생성
+
+10개 시드로 PNG/ASCII를 한 번에 만드는 데모 스크립트:
+
+```bash
+# stdout에 ASCII로 10개 출력
+python -m maze_generator.demo
+
+# PNG + .txt를 저장 (+ 컨택트 시트 all_seeds.png)
+python -m maze_generator.demo --save-dir maze_generator/examples
+
+# 더 dense하게, 시드 100부터 20개, 고스트 3마리
+python -m maze_generator.demo \
+    --count 20 --start-seed 100 \
+    --connectivity 0.6 --num-ghosts 3 \
+    --save-dir maze_generator/examples_dense
+```
+
+기본 예시는 [`maze_generator/examples/`](maze_generator/examples/)에 이미 들어 있습니다 (`maze_seed000.png` ~ `maze_seed009.png`, `all_seeds.png`).
+
+### 2.5.4 보장사항
+
+- **결정성**: 같은 `seed` → 항상 같은 맵 (`random.Random(seed)` 사용, 전역 RNG 안 건드림).
+- **좌우 대칭**: `col=10` 축 기준 완전 대칭.
+- **고정 영역**: 팩맨 시작 (14, 10), 고스트 하우스 (row 9–11, col 8–12) 모든 맵에서 동일.
+- **No dead-end**: 모든 PATH 셀이 이웃 PATH ≥ 2개.
+- **연결성**: BFS 단일 connected component, 고스트 하우스에서 gate 통과해 외부 도달 가능.
+
+검증은 `maze_generator.validator.validate(grid)`로 직접 다시 돌릴 수 있고, 생성 단계에서 실패하면 다른 seed로 최대 5회 재시도합니다 (21×21에선 1회로 항상 성공해야 함).
+
+### 2.5.5 기존 layout 포맷과의 관계
+
+현 generator는 ASCII layout file을 만들지 **않고**, 환경에 바로 먹일 dict를 반환합니다. 기존 `pacman_env.LayoutParser`와 호환되는 ASCII로 dump하고 싶다면 별도 어댑터가 필요합니다 (Phase 2 이후 통합 예정).
+
+---
+
 ## 3. 환경 설정 파일 (`configs/env/`)
 
 환경 hyperparameter는 YAML로 분리되어 있습니다.
@@ -319,8 +394,16 @@ python scripts/visualize_world_model.py \
 │   ├── env/                          # 환경 hyperparameter YAML
 │   └── world_model/jepa_default.yaml # WM 학습 설정
 ├── layouts/
-│   ├── train/                        # 학습용 맵
+│   ├── train/                        # 학습용 맵 (수작업 ASCII)
 │   └── eval/                         # OOD 평가용 맵
+├── maze_generator/                   # 21x21 랜덤 맵 생성기 (§2.5)
+│   ├── generator.py                  # generate_maze() API + 6-stage 파이프라인
+│   ├── carving.py                    # randomized DFS carving (left half)
+│   ├── post_process.py               # dead-end 제거 + food 배치
+│   ├── validator.py                  # 연결성/대칭/dead-end 검증
+│   ├── visualizer.py                 # ASCII + matplotlib PNG 렌더
+│   ├── demo.py                       # python -m maze_generator.demo
+│   └── examples/                     # 시드 0~9 PNG/ASCII 샘플
 ├── pacman_env/                       # gym 환경 (env, state, ghost, reward)
 ├── world_model/
 │   ├── single.py                     # SingleWorldModel
