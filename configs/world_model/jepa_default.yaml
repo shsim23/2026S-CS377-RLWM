@@ -6,6 +6,13 @@ world_model:
   action_emb_dim: 32
   num_ensemble_members: 1   # ensemble disabled; single model for current WM training
 
+  # v11+ — CNN encoder reshapes the 901-D state vector into a 5-channel
+  # 21×21 grid (walls, food, pacman one-hot, ghosts multi-hot, power timer)
+  # before convolution. Captures local update rules (e.g. food[5,7] vanishes
+  # when pacman steps onto (5,7)) that the flat MLP encoder had to learn
+  # from scratch. Set to "mlp" to reproduce v0–v10c.
+  encoder_type: "cnn"
+
   batch_size: 64
   seq_length: 50
   burnin: 5                 # legacy fixed burnin (used if burnin_min == burnin_max)

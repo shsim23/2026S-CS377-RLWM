@@ -100,22 +100,27 @@ def _extract_single_member_state(full_sd: dict, member_idx: int) -> dict:
 def load_checkpoint(ckpt_path: str, num_members: int, extract_member: int | None, device):
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     ckpt_K = ckpt["K"]
+    encoder_type = ckpt.get("encoder_type")
+    if encoder_type is None:
+        sd_keys = ckpt["state_dict"].keys()
+        encoder_type = "cnn" if any(".encoder.cnn." in k for k in sd_keys) else "mlp"
     if extract_member is not None:
         if extract_member >= ckpt_K:
             raise ValueError(f"--extract-member {extract_member} but checkpoint has K={ckpt_K}")
         sd = _extract_single_member_state(ckpt["state_dict"], extract_member)
-        model = EnsembleWorldModel(num_members=1).to(device)
+        model = EnsembleWorldModel(num_members=1, encoder_type=encoder_type).to(device)
         missing, unexpected = model.load_state_dict(sd, strict=False)
-        print(f"[resume] Extracted member {extract_member} from {ckpt_path} (K={ckpt_K} -> 1)")
+        print(f"[resume] Extracted member {extract_member} from {ckpt_path} "
+              f"(K={ckpt_K} -> 1, encoder={encoder_type})")
     else:
         if num_members != ckpt_K:
             raise ValueError(
                 f"--num-members={num_members} does not match checkpoint K={ckpt_K}. "
                 f"Pass --extract-member <idx> to extract one, or set --num-members {ckpt_K}."
             )
-        model = EnsembleWorldModel(num_members=ckpt_K).to(device)
+        model = EnsembleWorldModel(num_members=ckpt_K, encoder_type=encoder_type).to(device)
         missing, unexpected = model.load_state_dict(ckpt["state_dict"], strict=False)
-        print(f"[resume] Loaded full ensemble (K={ckpt_K}) from {ckpt_path}")
+        print(f"[resume] Loaded full ensemble (K={ckpt_K}, encoder={encoder_type}) from {ckpt_path}")
     if missing:
         print(f"[resume] {len(missing)} missing keys (fresh init): "
               + ", ".join(sorted({k.split('.')[2] for k in missing if k.startswith('members.')})))
@@ -244,11 +249,14 @@ def main():
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     # ---- model ----
+    encoder_type = getattr(cfg, "encoder_type", "cnn")
     if args.resume_from is not None:
         ensemble = load_checkpoint(args.resume_from, num_members, args.extract_member, device)
     else:
-        ensemble = EnsembleWorldModel(num_members=num_members).to(device)
-        print(f"[init] fresh model with K={num_members}")
+        ensemble = EnsembleWorldModel(
+            num_members=num_members, encoder_type=encoder_type
+        ).to(device)
+        print(f"[init] fresh model with K={num_members}, encoder={encoder_type}")
 
     if args.freeze_dynamics:
         freeze_dynamics(ensemble)

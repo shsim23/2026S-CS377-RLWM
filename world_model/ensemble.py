@@ -22,6 +22,7 @@ class EnsembleWorldModel(nn.Module):
 
         self.latent_dim = self.members[0].latent_dim
         self.gru_hidden = self.members[0].gru_hidden
+        self.encoder_type = self.members[0].encoder_type
 
     # ------------------------------------------------------------------ #
     def encode(self, s: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -83,11 +84,23 @@ class EnsembleWorldModel(nn.Module):
 
     # ------------------------------------------------------------------ #
     def save(self, path: str) -> None:
-        torch.save({"state_dict": self.state_dict(), "K": self.K}, path)
+        torch.save({
+            "state_dict":   self.state_dict(),
+            "K":            self.K,
+            "encoder_type": self.encoder_type,
+        }, path)
 
     @classmethod
     def load(cls, path: str, **kwargs) -> "EnsembleWorldModel":
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
+        # backwards compat: pre-v11 checkpoints have no encoder_type field —
+        # infer from state_dict key shape ('encoder.cnn.*' vs 'encoder.net.*').
+        encoder_type = ckpt.get("encoder_type")
+        if encoder_type is None:
+            sd_keys = ckpt["state_dict"].keys()
+            encoder_type = "cnn" if any(".encoder.cnn." in k for k in sd_keys) else "mlp"
+        # caller can override (e.g. for diagnostic mismatch debugging)
+        kwargs.setdefault("encoder_type", encoder_type)
         model = cls(num_members=ckpt["K"], **kwargs)
         model.load_state_dict(ckpt["state_dict"])
         model.eval()

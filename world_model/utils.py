@@ -21,6 +21,10 @@ def weight_init(m: torch.nn.Module) -> None:
         torch.nn.init.kaiming_uniform_(m.weight, a=0, nonlinearity="linear")
         if m.bias is not None:
             torch.nn.init.zeros_(m.bias)
+    elif isinstance(m, torch.nn.Conv2d):
+        torch.nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
+        if m.bias is not None:
+            torch.nn.init.zeros_(m.bias)
     elif isinstance(m, torch.nn.GRUCell):
         for name, param in m.named_parameters():
             if "weight" in name:

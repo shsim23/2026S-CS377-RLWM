@@ -2,7 +2,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
-from .modules.encoder import StateEncoder
+from .modules.encoder import StateEncoder, CNNStateEncoder
 from .modules.action import ActionEmbedder
 from .modules.dynamics import LatentDynamics
 from .modules.heads import DoneHead, DynamicStateHead, FoodEatenHead
@@ -36,9 +36,16 @@ class SingleWorldModel(nn.Module):
         gru_hidden: int = GRU_HIDDEN,
         hidden_dim: int = HIDDEN_DIM,
         action_emb_dim: int = ACTION_EMB_DIM,
+        encoder_type: str = "cnn",
     ):
         super().__init__()
-        self.encoder         = StateEncoder(state_dim, latent_dim, hidden_dim)
+        self.encoder_type = encoder_type
+        if encoder_type == "cnn":
+            self.encoder = CNNStateEncoder(state_dim, latent_dim, hidden_dim)
+        elif encoder_type == "mlp":
+            self.encoder = StateEncoder(state_dim, latent_dim, hidden_dim)
+        else:
+            raise ValueError(f"Unknown encoder_type: {encoder_type!r} (expected 'cnn' or 'mlp')")
         self.action_embedder = ActionEmbedder(action_dim, action_emb_dim)
         self.dynamics        = LatentDynamics(latent_dim, action_emb_dim, gru_hidden, hidden_dim)
         self.done_head       = DoneHead(latent_dim + gru_hidden, hidden=128)

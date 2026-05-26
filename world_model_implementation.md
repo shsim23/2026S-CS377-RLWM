@@ -391,3 +391,74 @@ def imagine_step(z, h, a):
    — 441-cell sigmoid 합의 SNR 한계를 인식하고, food event 자체를 binary classification으로 풀이. **현재 reward path의 중추**.
 
 6. **Low-LR full fine-tune from existing best** (v10c) — 새 head를 추가할 때 encoder가 발산하지 않도록 LR을 6× 낮춤. 안정적인 성능 향상의 키.
+
+---
+
+## 13. Imagination 시각화 — 모델이 그리는 미래
+
+수치(latent_mse, reward_mse)만으로는 모델이 실제로 어떤 "미래"를 상상하는지 감이 잘 안 옵니다. 그래서 **DynamicStateHead로 imagined latent를 raw state로 디코드**해서 실제 frame과 나란히 그려봤어요.
+
+### 13.1 어떻게 만드는가
+
+`scripts/imagine_trajectory.py`:
+
+```
+seed state[0]  ──Encoder──▶  z₀,  h₀ = 0
+                                │
+                                ▼
+                          imagine_step(z, h, a₀) ──▶ z₁, h₁, reward, done
+                                │
+                          DynamicStateHead(z₁) ──▶ 460-D state vector
+                                │                  (pacman, ghost, food mask, power)
+                                ▼
+                          decode → grid frame
+                                │
+                          반복 K=10 step (autoregressive)
+```
+
+- 각 step의 `z_next`를 다시 `DynamicStateHead`에 통과시켜 raw state 복원
+- **벽(walls)은 seed state에서 가져옴** (episode constant, 모델이 예측 대상 아님)
+- **burnin=0**: GRU hidden을 `h=0`으로 시작 — eval과 동일한 cold start 조건
+- K=10 step autoregressive: 예측된 z를 다음 step 입력으로 그대로 재사용
+
+### 13.2 결과 (v10c best.pt, burnin=0, K=10)
+
+> 각 figure에서:
+> - **상단 (TRUE)**: 실제 환경의 t=0, 2, 4, 6, 8, 10 frame
+> - **중단 (IMAG)**: 월드모델이 상상한 같은 시점의 frame
+> - **하단**: reward / done / latent MSE per step
+
+| Scene | 파일 |
+|---|---|
+| 0 | [`viz/imagination_v10c_burnin0/imagine_00.png`](viz/imagination_v10c_burnin0/imagine_00.png) |
+| 1 | [`viz/imagination_v10c_burnin0/imagine_01.png`](viz/imagination_v10c_burnin0/imagine_01.png) |
+| 2 | [`viz/imagination_v10c_burnin0/imagine_02.png`](viz/imagination_v10c_burnin0/imagine_02.png) |
+| 3 | [`viz/imagination_v10c_burnin0/imagine_03.png`](viz/imagination_v10c_burnin0/imagine_03.png) |
+
+![imagine_00](viz/imagination_v10c_burnin0/imagine_00.png)
+![imagine_01](viz/imagination_v10c_burnin0/imagine_01.png)
+![imagine_02](viz/imagination_v10c_burnin0/imagine_02.png)
+![imagine_03](viz/imagination_v10c_burnin0/imagine_03.png)
+
+### 13.3 무엇을 봐야 하는가
+
+| 요소 | 모델이 잘 하는가 | 코멘트 |
+|---|---|---|
+| **Pacman 위치** | ✅ 단기적으로 잘 | 1-3 step은 거의 정확, K=10까지 가면 약간 drift |
+| **Food 소실** | ✅ FoodEatenHead 효과 | pacman이 지나간 cell의 food가 사라지는 패턴 잘 학습됨 |
+| **Ghost 위치** | 🟡 중기 drift | ghost는 확률적 policy라 정확한 위치보다 분포가 중요 — 모델이 평균 위치로 수렴 |
+| **Vacant walls 침범** | ✅ 없음 | encoder가 wall layout을 z에 잘 보존 |
+| **Done 예측** | ✅ 거의 완벽 | done_err 0.003 수준이라 ghost 충돌 시점 잘 잡음 |
+
+### 13.4 한계 — burnin=0이 의미하는 것
+
+`h=0` cold start는 학습 시 burnin range `[0, 5]`의 한 끝일 뿐. 정책 학습 시 MPC/CEM은 보통 짧은 real history로 GRU를 warmup할 수 있어서 실전 성능은 burnin=0보다 더 좋을 가능성이 큽니다. (`scripts/eval_policy_readiness.py --warmup 5`로 비교 가능 — reward MSE 0.186 → 0.149로 개선)
+
+### 13.5 흥미로운 실패 패턴
+
+K가 커질수록 누적되는 오류 양상:
+- **Pacman 위치**가 1-2 cell 빗나가기 시작
+- **Food mask가 약간 "흐려짐"** — sigmoid threshold가 0.5인데 model이 일부 cell을 ~0.4 수준에서 흔들리게 만듦 (latent 발산의 직접적 증상)
+- 그래도 **reward/done 예측은 잘 유지** — policy에 직접 영향 있는 신호는 robust
+
+이게 우리가 v10d/v10e 실험에서 본 "latent_mse는 발산해도 reward MSE는 유지"라는 현상의 시각적 증거입니다.
