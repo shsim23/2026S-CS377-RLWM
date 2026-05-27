@@ -1,0 +1,108 @@
+# Pac-Man PPO Baseline (`pacman_rl`)
+
+This package trains PPO directly on the ground-truth `pacman_env.PacmanEnv`. It does not use the learned world model yet. Observations are the same 901-dimensional state vector produced by `StateBuilder`, and rewards are the raw Pac-Man reward from `pacman_env/reward.py`.
+
+Run output layout:
+
+```text
+logs/pacman_rl/<run_name>/
+  train/
+    events.out.tfevents...      # TensorBoard
+    checkpoints/model_*.pt      # rsl_rl checkpoints
+    videos/*.mp4                # training rollout videos, if --video
+  play/
+    *.mp4                       # playback videos, if --video
+```
+
+If `--run-name` is omitted, the current datetime is used as the run folder name.
+
+## Install
+
+For the `pacman_rl` conda environment on a CUDA 12.2 driver:
+
+```bash
+conda activate pacman_rl
+cd /home/ubuntu/wonjae/world_model
+
+python -m pip install -U pip setuptools wheel
+python -m pip install -r requirements.txt
+# Do not run: python -m pip install -e ".[rl]"
+```
+
+Verify CUDA:
+
+```bash
+python - <<'PY'
+import torch
+print(torch.__version__)
+print(torch.version.cuda)
+print(torch.cuda.is_available())
+PY
+```
+
+## Train
+
+```bash
+python pacman_rl/train.py --iterations 1 --num-envs 2 --device cuda --headless
+```
+
+Longer run:
+
+```bash
+python pacman_rl/train.py \
+    --config pacman_rl/configs/pacman_ppo.yaml \
+    --device cuda \
+    --headless \
+    --run-name medium_classic_1
+```
+
+TensorBoard:
+
+```bash
+tensorboard --logdir logs/pacman_rl/gt_ppo_medium/train
+```
+
+Record videos during training:
+
+```bash
+python pacman_rl/train.py \
+    --device cuda \
+    --headless \
+    --run-name gt_ppo_medium_video \
+    --video \
+    --video-every 100 \
+    --run-name simple_open_1
+```
+
+## Play / Eval
+
+```bash
+python pacman_rl/play.py \
+    --checkpoint logs/pacman_rl/gt_ppo_medium/train/checkpoints/model_50.pt \
+    --episodes 5 \
+    --device cuda \
+    --headless \
+    --video
+```
+
+Remove `--headless` to render with a Pygame window when a display is available. Pass `--video` to save `.mp4` files under the run folder.
+
+## Discrete Action Handling
+
+rsl_rl's `MLPModel` emits five logits and `CategoricalDistribution` samples one integer action id:
+
+| id | action |
+|---|---|
+| 0 | UP |
+| 1 | DOWN |
+| 2 | LEFT |
+| 3 | RIGHT |
+| 4 | NOOP |
+
+The action tensor shape remains `(num_envs, 1)` so PPO storage stays compatible with rsl_rl.
+
+## Tests
+
+```bash
+python -m pytest -q tests/test_rl_discrete.py tests/test_rl_vec_env.py
+```
