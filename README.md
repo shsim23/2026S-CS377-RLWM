@@ -1,10 +1,11 @@
 # 2026S CS377 — RL with World Models
 
-Pac-Man 환경에서 **JEPA-style world model**을 학습하고, 그 위에서 모델 기반 policy를 학습하는 프로젝트입니다.
+Pac-Man 환경에서 **JEPA-style world model**을 학습하고, 그 위에서 모델 기반 policy를 학습하는 프로젝트입니다. 현재는 world model을 쓰기 전 baseline으로, ground-truth `pacman_env`에서 직접 PPO를 학습하는 `pacman_rl/`도 포함합니다.
 
-이 문서는 두 가지를 다룹니다:
+이 문서는 세 가지를 다룹니다:
 1. **맵(layout) 작성 방법**
 2. **월드 모델 학습 방법** (데이터 수집 → 학습 → 평가)
+3. **GT Pac-Man PPO baseline 학습 방법** (`pacman_rl/`)
 
 월드 모델의 설계가 어떻게 진화해왔는지(reward head 제거, dynamic state head 추가, FoodEatenHead 도입 등)는 [`world_model_implementation.md`](world_model_implementation.md)를 참고하세요.
 
@@ -18,7 +19,31 @@ conda env create -f environment.yml -n pacman-wm
 conda activate pacman-wm
 ```
 
-모든 명령은 conda env `pacman-wm`을 활성화한 상태에서 실행해야 합니다.
+모든 world-model 명령은 conda env `pacman-wm`을 활성화한 상태에서 실행해야 합니다.
+
+### 1.1 RL baseline 환경 설치 (`pacman_rl`)
+
+PPO baseline은 별도 conda env `pacman_rl`에서 실행하는 것을 권장합니다. CUDA 12.2 driver에서는 rsl_rl 5.3.0의 `torch>=2.6.0` 요구사항 때문에 PyTorch 2.6.0 `cu118` wheel을 사용합니다.
+
+```bash
+conda activate pacman_rl
+cd /home/ubuntu/wonjae/world_model
+
+python -m pip install -U pip setuptools wheel
+python -m pip install -r requirements.txt
+# Do not run: python -m pip install -e ".[rl]"
+```
+
+설치 확인:
+
+```bash
+python - <<'PY'
+import torch, rsl_rl, tensordict, gymnasium, pygame, pacman_env
+print("torch:", torch.__version__)
+print("torch cuda runtime:", torch.version.cuda)
+print("cuda available:", torch.cuda.is_available())
+PY
+```
 
 ---
 
@@ -95,81 +120,6 @@ python scripts/play_human.py  --layout layouts/train/my_new_map.txt
 | `layouts/train/corridor.txt` | 좁은 통로 토폴로지 | 15×15 |
 | `layouts/eval/unseen_size.txt` | OOD eval (크기 변화) | — |
 | `layouts/eval/unseen_topology.txt` | OOD eval (구조 변화) | — |
-
----
-
-## 2.5 무작위 맵 자동 생성 (`maze_generator/`)
-
-World model이 *general* state transition을 학습하도록, per-map training 대신 다양한 21×21 맵을 자동 생성해서 데이터로 쓸 수 있습니다. 설계 사양은 [`maze_generator_spec.md`](maze_generator_spec.md)를 참고하세요.
-
-### 2.5.1 한 줄 사용
-
-```python
-from maze_generator import generate_maze, ascii_render, render_image
-
-maze = generate_maze(seed=42)        # dict (spec §7.2 형식)
-print(ascii_render(maze))            # 콘솔에 ASCII로 보기
-render_image(maze, "out.png")        # PNG로 저장
-```
-
-반환되는 `maze` dict의 주요 필드:
-
-| 키 | 형식 | 의미 |
-|---|---|---|
-| `walls` | `np.ndarray (21,21) bool` | True = 벽 |
-| `pacman_pos` | `(row, col)` | 항상 `(14, 10)` |
-| `ghost_positions` | `list[(r, c)]` | ghost house 내부 좌표 |
-| `food_positions` | `list[(r, c)]` | 펠릿 위치들 (variable length) |
-| `ghost_only_tiles` | `list[(r, c)]` | gate 좌표 |
-| `ghost_house_interior` | `list[(r, c)]` | 고스트 하우스 walkable |
-| `seed`, `width`, `height` | — | 메타 |
-| `_tile_grid` | `np.ndarray (21,21) int8` | 디버그용 raw 타일 코드 (벽=0, path=1, gate=2, interior=3) |
-
-### 2.5.2 주요 파라미터
-
-```python
-generate_maze(
-    connectivity = 0.3,   # cycle 밀도 [0=tree, 1=fully connected]
-    num_ghosts   = 1,     # 1, 2, 3 — 고스트 하우스 안에 자동 배치
-    seed         = None,  # 재현용. None이면 매번 새 맵
-)
-```
-
-`width`/`height`/`symmetric`/`ghost_house`는 Phase 1에서 고정. Warp tunnel과 power pellet (`num_warp_tunnels`, `num_power_pellets`)은 Phase 3/4용 인자만 마련돼 있고 0 외 값을 주면 `NotImplementedError`.
-
-### 2.5.3 CLI 데모 — 예시 맵 일괄 생성
-
-10개 시드로 PNG/ASCII를 한 번에 만드는 데모 스크립트:
-
-```bash
-# stdout에 ASCII로 10개 출력
-python -m maze_generator.demo
-
-# PNG + .txt를 저장 (+ 컨택트 시트 all_seeds.png)
-python -m maze_generator.demo --save-dir maze_generator/examples
-
-# 더 dense하게, 시드 100부터 20개, 고스트 3마리
-python -m maze_generator.demo \
-    --count 20 --start-seed 100 \
-    --connectivity 0.6 --num-ghosts 3 \
-    --save-dir maze_generator/examples_dense
-```
-
-기본 예시는 [`maze_generator/examples/`](maze_generator/examples/)에 이미 들어 있습니다 (`maze_seed000.png` ~ `maze_seed009.png`, `all_seeds.png`).
-
-### 2.5.4 보장사항
-
-- **결정성**: 같은 `seed` → 항상 같은 맵 (`random.Random(seed)` 사용, 전역 RNG 안 건드림).
-- **좌우 대칭**: `col=10` 축 기준 완전 대칭.
-- **고정 영역**: 팩맨 시작 (14, 10), 고스트 하우스 (row 9–11, col 8–12) 모든 맵에서 동일.
-- **No dead-end**: 모든 PATH 셀이 이웃 PATH ≥ 2개.
-- **연결성**: BFS 단일 connected component, 고스트 하우스에서 gate 통과해 외부 도달 가능.
-
-검증은 `maze_generator.validator.validate(grid)`로 직접 다시 돌릴 수 있고, 생성 단계에서 실패하면 다른 seed로 최대 5회 재시도합니다 (21×21에선 1회로 항상 성공해야 함).
-
-### 2.5.5 기존 layout 포맷과의 관계
-
-현 generator는 ASCII layout file을 만들지 **않고**, 환경에 바로 먹일 dict를 반환합니다. 기존 `pacman_env.LayoutParser`와 호환되는 ASCII로 dump하고 싶다면 별도 어댑터가 필요합니다 (Phase 2 이후 통합 예정).
 
 ---
 
@@ -386,7 +336,106 @@ python scripts/visualize_world_model.py \
 
 ---
 
-## 5. 디렉터리 구조
+## 5. Ground-Truth Pac-Man PPO Baseline (`pacman_rl/`)
+
+`pacman_rl/`은 world model을 사용하지 않고 실제 `PacmanEnv`에서 PPO를 학습하는 baseline입니다. 관측은 world model output과 같은 901-dim state vector이고, reward는 `pacman_env/reward.py`의 `RewardComputer`가 반환하는 점수를 그대로 사용합니다.
+
+Run output layout:
+
+```text
+logs/pacman_rl/<run_name>/
+  train/
+    events.out.tfevents...      # TensorBoard
+    checkpoints/model_*.pt      # rsl_rl checkpoints
+    videos/*.mp4                # train rollout videos, if --video
+  play/
+    *.mp4                       # playback videos, if --video
+```
+
+`--run-name`을 생략하면 현재 datetime이 run folder 이름으로 사용됩니다.
+
+### 5.1 핵심 구현
+
+| 파일 | 역할 |
+|---|---|
+| `pacman_rl/vec_env.py` | 여러 `PacmanEnv`를 rsl_rl `VecEnv` 인터페이스로 감싸는 adapter |
+| `pacman_rl/discrete.py` | Pac-Man의 5개 discrete action을 위한 categorical distribution |
+| `pacman_rl/train.py` | PPO 학습 entrypoint |
+| `pacman_rl/play.py` | checkpoint evaluation / playback entrypoint |
+| `pacman_rl/video.py` | headless video recording helper |
+| `pacman_rl/configs/pacman_ppo.yaml` | PPO/env 기본 설정 |
+
+Discrete action은 policy MLP가 5개 logit을 출력하고, `torch.distributions.Categorical`에서 action id를 sample하는 방식입니다:
+
+| id | action |
+|---|---|
+| 0 | UP |
+| 1 | DOWN |
+| 2 | LEFT |
+| 3 | RIGHT |
+| 4 | NOOP |
+
+### 5.2 학습
+
+Smoke test:
+
+```bash
+python pacman_rl/train.py \
+    --iterations 1 \
+    --num-envs 2 \
+    --device cuda \
+    --headless
+```
+
+일반 학습:
+
+```bash
+python pacman_rl/train.py \
+    --config pacman_rl/configs/pacman_ppo.yaml \
+    --device cuda \
+    --headless \
+    --run-name gt_ppo_medium
+```
+
+TensorBoard:
+
+```bash
+tensorboard --logdir logs/pacman_rl/gt_ppo_medium/train
+```
+
+학습 중 rollout video 저장:
+
+```bash
+python pacman_rl/train.py \
+    --device cuda \
+    --headless \
+    --run-name gt_ppo_medium_video \
+    --video \
+    --video-every 100
+```
+
+### 5.3 플레이 / 평가
+
+```bash
+python pacman_rl/play.py \
+    --checkpoint logs/pacman_rl/gt_ppo_medium/train/checkpoints/model_50.pt \
+    --episodes 5 \
+    --device cuda \
+    --headless \
+    --video
+```
+
+`--headless`를 빼면 가능한 환경에서 Pygame 창으로 직접 볼 수 있습니다. `--video`를 켜면 run folder 아래에 `.mp4` 파일을 저장합니다.
+
+### 5.4 테스트
+
+```bash
+python -m pytest -q tests/test_rl_discrete.py tests/test_rl_vec_env.py
+```
+
+---
+
+## 6. 디렉터리 구조
 
 ```
 .
@@ -394,17 +443,16 @@ python scripts/visualize_world_model.py \
 │   ├── env/                          # 환경 hyperparameter YAML
 │   └── world_model/jepa_default.yaml # WM 학습 설정
 ├── layouts/
-│   ├── train/                        # 학습용 맵 (수작업 ASCII)
+│   ├── train/                        # 학습용 맵
 │   └── eval/                         # OOD 평가용 맵
-├── maze_generator/                   # 21x21 랜덤 맵 생성기 (§2.5)
-│   ├── generator.py                  # generate_maze() API + 6-stage 파이프라인
-│   ├── carving.py                    # randomized DFS carving (left half)
-│   ├── post_process.py               # dead-end 제거 + food 배치
-│   ├── validator.py                  # 연결성/대칭/dead-end 검증
-│   ├── visualizer.py                 # ASCII + matplotlib PNG 렌더
-│   ├── demo.py                       # python -m maze_generator.demo
-│   └── examples/                     # 시드 0~9 PNG/ASCII 샘플
 ├── pacman_env/                       # gym 환경 (env, state, ghost, reward)
+├── pacman_rl/                        # GT Pac-Man PPO baseline (rsl_rl)
+│   ├── train.py                      # PPO 학습 entry
+│   ├── play.py                       # checkpoint play/eval
+│   ├── vec_env.py                    # rsl_rl VecEnv adapter
+│   ├── discrete.py                   # categorical action distribution
+│   ├── video.py                      # mp4 recording helper
+│   └── configs/pacman_ppo.yaml       # PPO/env config
 ├── world_model/
 │   ├── single.py                     # SingleWorldModel
 │   ├── ensemble.py                   # EnsembleWorldModel wrapper
@@ -426,7 +474,7 @@ python scripts/visualize_world_model.py \
 
 ---
 
-## 6. 빠른 reproduce 레시피
+## 7. 빠른 reproduce 레시피
 
 마지막 best 체크포인트(`v10c`)를 처음부터 재현하려면:
 

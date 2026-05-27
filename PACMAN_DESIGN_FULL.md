@@ -459,8 +459,7 @@ pacman-wm/
 │   │   ├── default.yaml
 │   │   ├── mvp_tier1.yaml
 │   │   └── full_tier2.yaml
-│   ├── world_model/                 # TBD (Part 2)
-│   └── policy/                      # TBD (other teammate)
+│   └── world_model/                 # world-model configs
 │
 ├── layouts/
 │   ├── train/
@@ -487,15 +486,14 @@ pacman-wm/
 │       ├── pellet.png
 │       └── power_pellet.png
 │
-├── world_model/                     # TBD (Part 2 of this design doc)
-├── policy/                          # TBD (other teammate)
+├── world_model/                     # Part 2 world-model code
+├── pacman_rl/                       # GT-env PPO baseline with rsl_rl
 │
 ├── scripts/
 │   ├── play_human.py                # Keyboard control for sanity check
 │   ├── play_random.py               # Random policy rollout
 │   ├── collect_data.py              # Bulk data collection for world model
-│   ├── train_world_model.py         # TBD
-│   └── eval_zero_shot.py            # TBD
+│   └── train_world_model.py         # world-model training
 │
 ├── data/
 │   └── replay/
@@ -1580,10 +1578,9 @@ A_VPA  = A_PPO - lambda_vpa * sigmas
 └────────────────────────────────────────────────────────────────────────┘
                                   ↓
 ┌────────────────────────────────────────────────────────────────────────┐
-│ Phase 3: Policy training (policy team)                                  │
-│   scripts/train_policy_vpa.py  (not our responsibility, but documented) │
-│   Uses checkpoints/best.pt as frozen WM                                 │
-│   PPO + VPA with λ ∈ {0.0, 0.1, 0.5, 1.0, 2.0}                          │
+│ Phase 3: Policy training                                                │
+│   pacman_rl/train.py: GT-env PPO baseline (implemented)                  │
+│   Future: PPO + VPA inside frozen world model                            │
 │   Eval on real env (train layouts + held-out eval layouts)              │
 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1962,10 +1959,8 @@ pacman-wm/
 │   │   ├── default.yaml
 │   │   ├── mvp_tier1.yaml
 │   │   └── full_tier2.yaml
-│   ├── world_model/
-│   │   └── jepa_default.yaml
-│   └── policy/                      # placeholder for policy team
-│       └── ppo_vpa.yaml
+│   └── world_model/
+│       └── jepa_default.yaml
 │
 ├── layouts/
 │   ├── train/
@@ -2009,8 +2004,13 @@ pacman-wm/
 │   ├── eval.py                      # evaluate_k_step_rollout
 │   └── interface.py                 # WorldModelProtocol (typing-only contract)
 │
-├── policy/                          # placeholder for policy team
-│   └── (TBD by policy teammate)
+├── pacman_rl/                       # ★ GT-env PPO baseline
+│   ├── train.py                     # rsl_rl PPO training entrypoint
+│   ├── play.py                      # checkpoint playback/eval
+│   ├── vec_env.py                   # rsl_rl VecEnv adapter over PacmanEnv
+│   ├── discrete.py                  # categorical action distribution
+│   ├── video.py                     # mp4 recording helpers
+│   └── configs/pacman_ppo.yaml      # PPO/env config
 │
 ├── scripts/
 │   ├── play_human.py                # human sanity check
@@ -2042,8 +2042,10 @@ pacman-wm/
     ├── test_state_vector.py
     ├── test_determinism.py
     ├── test_world_model_shapes.py   # ★ new: verify all tensor shapes
-    ├── test_ensemble_diversity.py   # ★ new: assert σ > 0 on random data
-    └── test_symlog_roundtrip.py     # ★ new: symexp(symlog(x)) ≈ x
+    ├── test_ensemble_diversity.py   # assert σ > 0 on random data
+    ├── test_symlog_roundtrip.py     # symexp(symlog(x)) ≈ x
+    ├── test_rl_discrete.py          # categorical action distribution
+    └── test_rl_vec_env.py           # rsl_rl VecEnv adapter
 ```
 
 ---

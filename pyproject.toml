@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "pacman-wm"
@@ -9,10 +9,15 @@ requires-python = ">=3.10"
 dependencies = [
     "gymnasium>=0.29.0",
     "numpy>=1.24",
-    "torch>=2.0",
+    "torch>=2.6.0",
     "pygame>=2.5",
     "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "wandb>=0.17"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pacman_env*", "world_model*", "pacman_rl*"]
+exclude = ["tests*", "scripts*", "data*", "logs*", "checkpoints*", "wandb*", "viz*"]
