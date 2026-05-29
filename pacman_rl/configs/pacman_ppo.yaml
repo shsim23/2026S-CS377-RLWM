@@ -14,7 +14,7 @@ env:
   ghost:
     num_ghosts: 1
     policy: chase_stochastic
-    epsilon: 0.4  # Epsilon (As in epsilon-greedy) for stochasticity of ghost behavior
+    epsilon: 0.5  # Epsilon (As in epsilon-greedy) for stochasticity of ghost behavior
   power_pellet:
     enabled: false
     frightened_duration: 30
