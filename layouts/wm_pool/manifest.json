@@ -1,0 +1,293 @@
+{
+  "generator": "maze_generator.generate_maze",
+  "seed_base": 0,
+  "seed_stride": 64,
+  "connectivity": 0.3,
+  "num_ghosts": 1,
+  "n_train": 30,
+  "n_test": 5,
+  "train": [
+    {
+      "layout_id": "train_000",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_000.txt",
+      "seed": 0,
+      "food_count": 175,
+      "wall_hash": "ed15b899340ffb27"
+    },
+    {
+      "layout_id": "train_001",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_001.txt",
+      "seed": 64,
+      "food_count": 181,
+      "wall_hash": "6f393d940421939a"
+    },
+    {
+      "layout_id": "train_002",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_002.txt",
+      "seed": 128,
+      "food_count": 176,
+      "wall_hash": "ab08c7c9aa2f48ac"
+    },
+    {
+      "layout_id": "train_003",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_003.txt",
+      "seed": 192,
+      "food_count": 174,
+      "wall_hash": "9125fdb18f54e51e"
+    },
+    {
+      "layout_id": "train_004",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_004.txt",
+      "seed": 256,
+      "food_count": 179,
+      "wall_hash": "e46bfd894c95b281"
+    },
+    {
+      "layout_id": "train_005",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_005.txt",
+      "seed": 320,
+      "food_count": 177,
+      "wall_hash": "d30dab55fdb37893"
+    },
+    {
+      "layout_id": "train_006",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_006.txt",
+      "seed": 384,
+      "food_count": 177,
+      "wall_hash": "b61cbe3cda0da813"
+    },
+    {
+      "layout_id": "train_007",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_007.txt",
+      "seed": 448,
+      "food_count": 171,
+      "wall_hash": "4b04440957a9202e"
+    },
+    {
+      "layout_id": "train_008",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_008.txt",
+      "seed": 512,
+      "food_count": 181,
+      "wall_hash": "1f22e764b4fe112f"
+    },
+    {
+      "layout_id": "train_009",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_009.txt",
+      "seed": 576,
+      "food_count": 180,
+      "wall_hash": "6d48e64526d1ada5"
+    },
+    {
+      "layout_id": "train_010",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_010.txt",
+      "seed": 640,
+      "food_count": 186,
+      "wall_hash": "0c0f1aa9c0df9987"
+    },
+    {
+      "layout_id": "train_011",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_011.txt",
+      "seed": 704,
+      "food_count": 187,
+      "wall_hash": "4d5750dff9d03333"
+    },
+    {
+      "layout_id": "train_012",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_012.txt",
+      "seed": 768,
+      "food_count": 181,
+      "wall_hash": "2840c6eb3c528475"
+    },
+    {
+      "layout_id": "train_013",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_013.txt",
+      "seed": 832,
+      "food_count": 182,
+      "wall_hash": "44cbe00c2d1f8f62"
+    },
+    {
+      "layout_id": "train_014",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_014.txt",
+      "seed": 896,
+      "food_count": 182,
+      "wall_hash": "b8407970bcdcfc9c"
+    },
+    {
+      "layout_id": "train_015",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_015.txt",
+      "seed": 960,
+      "food_count": 178,
+      "wall_hash": "49aa36286565db32"
+    },
+    {
+      "layout_id": "train_016",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_016.txt",
+      "seed": 1024,
+      "food_count": 183,
+      "wall_hash": "a8c2e646427712ee"
+    },
+    {
+      "layout_id": "train_017",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_017.txt",
+      "seed": 1088,
+      "food_count": 177,
+      "wall_hash": "e277f3b2b783272d"
+    },
+    {
+      "layout_id": "train_018",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_018.txt",
+      "seed": 1152,
+      "food_count": 179,
+      "wall_hash": "96dcb65035948153"
+    },
+    {
+      "layout_id": "train_019",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_019.txt",
+      "seed": 1216,
+      "food_count": 168,
+      "wall_hash": "606337c8a07cc548"
+    },
+    {
+      "layout_id": "train_020",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_020.txt",
+      "seed": 1280,
+      "food_count": 179,
+      "wall_hash": "6d6518a36184fa87"
+    },
+    {
+      "layout_id": "train_021",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_021.txt",
+      "seed": 1344,
+      "food_count": 174,
+      "wall_hash": "bec2ca7010b823ff"
+    },
+    {
+      "layout_id": "train_022",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_022.txt",
+      "seed": 1408,
+      "food_count": 173,
+      "wall_hash": "a1c1bd491c098384"
+    },
+    {
+      "layout_id": "train_023",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_023.txt",
+      "seed": 1472,
+      "food_count": 177,
+      "wall_hash": "df7060f9c879630d"
+    },
+    {
+      "layout_id": "train_024",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_024.txt",
+      "seed": 1536,
+      "food_count": 177,
+      "wall_hash": "61489adef63ef8ee"
+    },
+    {
+      "layout_id": "train_025",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_025.txt",
+      "seed": 1600,
+      "food_count": 168,
+      "wall_hash": "d9f89144b8c80623"
+    },
+    {
+      "layout_id": "train_026",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_026.txt",
+      "seed": 1664,
+      "food_count": 185,
+      "wall_hash": "b73823f398656573"
+    },
+    {
+      "layout_id": "train_027",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_027.txt",
+      "seed": 1728,
+      "food_count": 185,
+      "wall_hash": "8ecf3d298452c2dc"
+    },
+    {
+      "layout_id": "train_028",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_028.txt",
+      "seed": 1792,
+      "food_count": 179,
+      "wall_hash": "67d99cadc5ce65d8"
+    },
+    {
+      "layout_id": "train_029",
+      "pool": "train",
+      "file": "layouts/wm_pool/train/layout_029.txt",
+      "seed": 1856,
+      "food_count": 186,
+      "wall_hash": "b652037ad13d438b"
+    }
+  ],
+  "test": [
+    {
+      "layout_id": "test_000",
+      "pool": "test",
+      "file": "layouts/wm_pool/test/layout_000.txt",
+      "seed": 1984,
+      "food_count": 179,
+      "wall_hash": "0a7eeed8c1971d2e"
+    },
+    {
+      "layout_id": "test_001",
+      "pool": "test",
+      "file": "layouts/wm_pool/test/layout_001.txt",
+      "seed": 2048,
+      "food_count": 186,
+      "wall_hash": "bf2dc70e7334cb7a"
+    },
+    {
+      "layout_id": "test_002",
+      "pool": "test",
+      "file": "layouts/wm_pool/test/layout_002.txt",
+      "seed": 2112,
+      "food_count": 184,
+      "wall_hash": "819987038ed7a493"
+    },
+    {
+      "layout_id": "test_003",
+      "pool": "test",
+      "file": "layouts/wm_pool/test/layout_003.txt",
+      "seed": 2176,
+      "food_count": 176,
+      "wall_hash": "88675000d424905e"
+    },
+    {
+      "layout_id": "test_004",
+      "pool": "test",
+      "file": "layouts/wm_pool/test/layout_004.txt",
+      "seed": 2240,
+      "food_count": 180,
+      "wall_hash": "7eb6eb52f15533c4"
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+# DreamerV3-style state-based RSSM world model — single runtime source of truth.
+# See WORLDMODEL_DREAMERV3_SPEC.md §6–§8.
+world_model:
+  # --- architecture (spec §4, §8) ---
+  action_dim: 5
+  groups: 32            # categorical latent groups
+  classes: 32           # classes per group  (latent = 32×32)
+  deter: 256            # GRU recurrent units (h dim)
+  hidden: 256           # MLP hidden units
+  e_dim: 32             # layout embedding dim
+  action_emb: 16
+  num_bins: 255         # two-hot reward buckets
+  vmin: -20.0           # reward support (symlog space)
+  vmax: 20.0
+  unimix: 0.01          # 1% unimix
+
+  # --- objective (spec §6) ---
+  beta_pred: 1.0
+  beta_dyn: 0.5
+  beta_rep: 0.1
+  free_nats: 1.0        # free bits = 1 nat per KL term
+
+  # --- training (spec §7) ---
+  batch_size: 16
+  seq_length: 64        # loss steps per sequence
+  context: 8            # warm-up steps (h_0 from real history); excluded from loss
+  learning_rate: 1.0e-4
+  optimizer: laprop     # LaProp (RMSProp-then-momentum)
+  agc_clip: 0.3         # adaptive gradient clipping ratio
+  betas: [0.9, 0.999]
+
+  max_train_steps: 50000
+  eval_every: 1000
+  log_every: 100
+  # --- eval (spec §10) ---
+  k_step: 32            # open-loop rollout horizon
+  n_eval_windows: 64
+  eval_seed: 0
