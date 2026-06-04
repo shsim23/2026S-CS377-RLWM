@@ -137,6 +137,7 @@ env:
     num_ghosts: 1
     policy: "chase_stochastic"      # or "random"
     epsilon: 0.2                     # 확률적 noise
+    speed_ratio: 1.0                 # ghost moves per Pac-Man step; 0.5 = every other step
     personality: "homogeneous"
   power_pellet:
     enabled: false                   # MVP에서는 비활성화
@@ -147,7 +148,8 @@ env:
     ghost_eaten: 10.0
     death: -10.0
     win: 50.0
-    step_penalty: -0.01
+    sparse_remaining_pellet_penalty: 0.0
+    dense_remaining_pellet_ratio_penalty: 0.0
   episode:
     max_steps: 500
   render_mode: null
