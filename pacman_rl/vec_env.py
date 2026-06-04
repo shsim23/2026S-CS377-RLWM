@@ -130,6 +130,7 @@ class RslPacmanVecEnv(VecEnv):
             num_ghosts=int(ghost_cfg.get("num_ghosts", self.cfg.get("num_ghosts", 1))),
             ghost_epsilon=float(ghost_cfg.get("epsilon", self.cfg.get("ghost_epsilon", 0.2))),
             ghost_policy=str(ghost_cfg.get("policy", self.cfg.get("ghost_policy", "chase_stochastic"))),
+            ghost_speed_ratio=float(ghost_cfg.get("speed_ratio", self.cfg.get("ghost_speed_ratio", 1.0))),
             power_pellet_enabled=bool(power_cfg.get("enabled", self.cfg.get("power_pellet_enabled", False))),
             frightened_duration=int(power_cfg.get("frightened_duration", self.cfg.get("frightened_duration", 30))),
             max_steps=int(episode_cfg.get("max_steps", self.cfg.get("max_steps", 500))),

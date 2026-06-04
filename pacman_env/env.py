@@ -21,6 +21,7 @@ class PacmanEnv(gym.Env):
         num_ghosts: int = 1,
         ghost_epsilon: float = 0.2,
         ghost_policy: str = "chase_stochastic",
+        ghost_speed_ratio: float = 1.0,
         power_pellet_enabled: bool = False,
         frightened_duration: int = 30,
         max_steps: int = 500,
@@ -37,8 +38,11 @@ class PacmanEnv(gym.Env):
             self.num_ghosts = num_ghosts
         else:
             self.num_ghosts = min(num_ghosts, len(self.layout.ghost_starts))
+        if ghost_speed_ratio < 0.0:
+            raise ValueError("ghost_speed_ratio must be >= 0.0")
         self.ghost_epsilon = ghost_epsilon
         self.ghost_policy = ghost_policy
+        self.ghost_speed_ratio = float(ghost_speed_ratio)
         self.power_pellet_enabled = power_pellet_enabled
         self.frightened_duration = frightened_duration
         self.max_steps = max_steps
@@ -66,6 +70,8 @@ class PacmanEnv(gym.Env):
         self.game_state: Optional[GameState] = None
         self.np_random: np.random.Generator = np.random.default_rng()
         self._ghost_controller: Optional[GhostController] = None
+        self._ghost_move_credit: float = 0.0
+        self._total_pellets: int = 0
         self._cumulative_reward: float = 0.0
         self._last_event: Optional[StepEvent] = None
 
@@ -83,6 +89,8 @@ class PacmanEnv(gym.Env):
             self._ghost_controller = GhostController(1.0, self.np_random)
 
         self.game_state = self._init_game_state()
+        self._ghost_move_credit = 0.0
+        self._total_pellets = int(self.game_state.food_mask.sum())
         self._cumulative_reward = 0.0
         self._last_event = None
 
@@ -106,30 +114,32 @@ class PacmanEnv(gym.Env):
         if not event.died:
             self._consume_items(event)
 
-        # 4. Ghosts move
+        # 4. Ghosts move according to their speed ratio
         if not event.died:
-            self._move_ghosts(event)
-
-        # 5. Post-move collision check (ghost walked onto Pac-Man)
-        if not event.died:
-            self._check_collision(event)
+            self._move_ghosts_on_schedule(event)
 
         # 6. Win condition
         if not event.died and gs.food_mask.sum() == 0:
             event.won = True
 
-        # 7. Power timer tick
+        # 7. Termination state used by sparse terminal rewards
+        next_step_count = gs.step_count + 1
+        terminated = event.died or event.won
+        truncated = next_step_count >= self.max_steps
+        event.remaining_pellets = int(gs.food_mask.sum())
+        event.total_pellets = self._total_pellets
+        event.episode_ended = terminated or truncated
+
+        # 8. Power timer tick
         if gs.power_mode_timer > 0:
             gs.power_mode_timer -= 1
 
-        # 8. Reward
+        # 9. Reward
         reward = self._reward_computer.compute(event)
         self._cumulative_reward += reward
 
-        # 9. Termination
-        gs.step_count += 1
-        terminated = event.died or event.won
-        truncated = gs.step_count >= self.max_steps
+        # 10. Bookkeeping
+        gs.step_count = next_step_count
         gs.done = terminated or truncated
 
         self._last_event = event
@@ -227,6 +237,13 @@ class PacmanEnv(gym.Env):
             )
         gs.ghost_positions = new_positions
 
+    def _move_ghosts_on_schedule(self, event: StepEvent) -> None:
+        self._ghost_move_credit += self.ghost_speed_ratio
+        while self._ghost_move_credit + 1e-12 >= 1.0 and not event.died:
+            self._ghost_move_credit -= 1.0
+            self._move_ghosts(event)
+            self._check_collision(event)
+
     def _consume_items(self, event: StepEvent) -> None:
         gs = self.game_state
         px, py = gs.pacman_pos
@@ -267,6 +284,9 @@ class PacmanEnv(gym.Env):
                 "ate_ghosts": ev.ate_ghosts,
                 "died": ev.died,
                 "won": ev.won,
+                "remaining_pellets": ev.remaining_pellets,
+                "total_pellets": ev.total_pellets,
+                "episode_ended": ev.episode_ended,
             },
             "layout_id": self.layout.name,
         }

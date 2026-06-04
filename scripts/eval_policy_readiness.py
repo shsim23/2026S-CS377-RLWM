@@ -6,7 +6,7 @@ ORDER (the only thing a policy actually needs from a critic-free planner).
 Metrics
 -------
   - reward MSE / latent MSE / done err     (sanity, matches eval_world_model.py)
-  - sign accuracy                          (sign(pred-step_penalty) vs true)
+  - sign accuracy                          (sign(pred) vs true)
   - Pearson / Spearman correlation         (pred_r vs true_r over all (traj,t))
   - per-class mean reward                  (food_eaten=0 vs food_eaten=1 buckets)
   - food-eaten ROC-AUC                     (pred_r as score for true food event)
@@ -23,9 +23,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from world_model import EnsembleWorldModel, SequenceReplayBuffer
 
-_STEP_PENALTY = -0.01
 _PELLET_VALUE = 1.0
-_FOOD_EATEN_THRESHOLD = 0.5   # true_r > step_penalty + threshold * pellet ⇒ food eaten
+_FOOD_EATEN_THRESHOLD = 0.5   # true_r > threshold * pellet ⇒ food eaten
 
 
 def _pearson(x: np.ndarray, y: np.ndarray) -> float:

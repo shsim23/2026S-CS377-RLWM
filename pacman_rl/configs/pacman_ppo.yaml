@@ -1,34 +1,36 @@
 device: cuda
-iterations: 500  # Total number of training iterations
+iterations: 2000  # Total number of training iterations
 log_root: logs/pacman_rl
 
 env:
   layout_file: layouts/train/small_open.txt
   num_envs: 64  # Number of parallel environments to run for data collection
-  seed: 0
+  seed: 42
   randomize_spawn: true
   min_spawn_dist: 5
   action_space_n: 5
-  max_steps: 300  # Maximum steps per episode to prevent infinite loops
-  timeout_penalty: -75.0
+  max_steps: 700  # Maximum steps per episode to prevent infinite loops
+  timeout_penalty: -50.0  # Penalty for episodes that end due to timeout
   ghost:
     num_ghosts: 1
     policy: chase_stochastic
-    epsilon: 0.5  # Epsilon (As in epsilon-greedy) for stochasticity of ghost behavior
+    epsilon: 0.4  # Epsilon (As in epsilon-greedy) for stochasticity of ghost behavior
+    speed_ratio: 0.6  # Ratio of ghost speed to pacman speed (1.0 means same speed, <1.0 means slower ghosts)
   power_pellet:
     enabled: false
     frightened_duration: 30
   reward:
-    pellet: 5.0
-    power_pellet: 5.0
-    ghost_eaten: 10.0
-    death: -20.0
-    win: 150.0
-    step_penalty: -0.03  # Small penalty to encourage shorter solutions
+    pellet: 10.0
+    power_pellet: 10.0
+    ghost_eaten: 20.0
+    death: -100.0
+    win: 200.0
+    sparse_remaining_pellet_penalty: -0.0  # Penalty for each remaining pellet at the end of an episode
+    dense_remaining_pellet_ratio_penalty: -0.0  # Penalty per remaining pellet ratio (remaining_pellets / total_pellets)
 
 train:
   num_steps_per_env: 128  # Number of steps to collect per environment before updating
-  save_interval: 100
+  save_interval: 200  # Save checkpoint every N iterations
   logger: tensorboard
   obs_groups:
     actor: [policy]

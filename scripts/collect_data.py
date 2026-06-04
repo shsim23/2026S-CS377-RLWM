@@ -111,6 +111,8 @@ def main():
                         help="Min Manhattan distance between Pac-Man and each ghost at spawn.")
     parser.add_argument("--num-ghosts", type=int, default=1)
     parser.add_argument("--ghost-epsilon", type=float, default=0.2)
+    parser.add_argument("--ghost-speed-ratio", type=float, default=1.0,
+                        help="Ghost moves per Pac-Man step; 1.0 preserves current behavior, 0.5 moves every other step.")
     args = parser.parse_args()
 
     out = Path(args.output_dir)
@@ -121,6 +123,7 @@ def main():
         layout_path=args.layout,
         num_ghosts=args.num_ghosts,
         ghost_epsilon=args.ghost_epsilon,
+        ghost_speed_ratio=args.ghost_speed_ratio,
         randomize_spawn=args.randomize_spawn,
         min_spawn_dist=args.min_spawn_dist,
     )

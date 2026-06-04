@@ -25,7 +25,8 @@ def main() -> None:
     parser.add_argument("--device", default=None)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--log-root", default=None, help="Root directory for runs. Final path is <log-root>/<run-name>.")
-    parser.add_argument("--run-name", default=None, help="Run folder name. Defaults to current datetime.")
+    parser.add_argument("--run-name", default=None, help="Run folder name. Defaults to current datetime, or inferred from --resume when possible.")
+    parser.add_argument("--resume", default=None, help="Checkpoint path to resume PPO training from.")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--video", action="store_true", help="Record policy rollout videos under <run>/train/videos.")
     parser.add_argument("--video-every", type=int, default=0, help="Record every N learning iterations; 0 = final only.")
@@ -37,11 +38,13 @@ def main() -> None:
 
     config = load_yaml(args.config)
     env_cfg = make_env_cfg(config, layout_file=args.layout, num_envs=args.num_envs, seed=args.seed)
-    run_name = args.run_name or datetime.now().strftime("%Y%m%d_%H%M%S")
-    train_cfg = make_train_cfg(config, run_name=run_name)
     device = args.device or config.get("device", "cuda")
     iterations = int(args.iterations or config.get("iterations", 1000))
     log_root = resolve_path(args.log_root or config.get("log_root", "logs/pacman_rl"))
+    resume_path = resolve_path(args.resume) if args.resume is not None else None
+    inferred_run_name = _infer_run_name_from_resume(resume_path, log_root) if resume_path is not None else None
+    run_name = args.run_name or inferred_run_name or datetime.now().strftime("%Y%m%d_%H%M%S")
+    train_cfg = make_train_cfg(config, run_name=run_name)
     run_dir = log_root / run_name
     train_dir = run_dir / "train"
     checkpoint_dir = train_dir / "checkpoints"
@@ -56,6 +59,10 @@ def main() -> None:
     runner.add_git_repo_to_log(str(ROOT))
     _use_total_progress_eta(runner, total_iterations=iterations)
     _use_checkpoint_dir(runner, checkpoint_dir)
+    if resume_path is not None:
+        runner.load(str(resume_path), map_location=device)
+        print(f"Resumed PPO from: {resume_path}")
+        print(f"Continuing in run directory: {run_dir}")
     print(f"Training progress will be reported as i/{iterations} with total-run ETA.")
 
     try:
@@ -74,6 +81,18 @@ def main() -> None:
                 _record(runner, env_cfg, args, runner.current_learning_iteration, device, video_dir)
     finally:
         env.close()
+
+
+def _infer_run_name_from_resume(resume_path: Path, log_root: Path) -> str | None:
+    resolved = resume_path.resolve()
+    if resolved.parent.name != "checkpoints" or resolved.parent.parent.name != "train":
+        return None
+    run_dir = resolved.parent.parent.parent
+    try:
+        run_dir.relative_to(log_root.resolve())
+    except ValueError:
+        return None
+    return run_dir.name
 
 
 def _use_total_progress_eta(runner: OnPolicyRunner, total_iterations: int) -> None:

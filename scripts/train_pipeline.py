@@ -31,6 +31,8 @@ def main():
     parser.add_argument("--p-greedy", type=float, default=0.3)
     parser.add_argument("--ghost-epsilon", type=float, default=0.2,
                         help="Design-frozen default; keep at 0.2 to preserve VPA narrative.")
+    parser.add_argument("--ghost-speed-ratio", type=float, default=1.0,
+                        help="Ghost moves per Pac-Man step; 1.0 preserves current behavior, 0.5 moves every other step.")
     parser.add_argument("--num-ghosts", type=int, default=1)
     parser.add_argument("--randomize-spawn", dest="randomize_spawn",
                         action="store_true", default=True)
@@ -77,6 +79,7 @@ def main():
             "--policy", args.policy,
             "--p-greedy", str(args.p_greedy),
             "--ghost-epsilon", str(args.ghost_epsilon),
+            "--ghost-speed-ratio", str(args.ghost_speed_ratio),
             "--num-ghosts", str(args.num_ghosts),
             "--output-dir", str(data_dir),
             "--seed", str(args.collect_seed),

@@ -62,13 +62,25 @@ TensorBoard:
 tensorboard --logdir logs/pacman_rl/gt_ppo_medium/train
 ```
 
+
+Resume from a checkpoint and train additional iterations:
+
+```bash
+python pacman_rl/train.py \
+    --resume logs/pacman_rl/simple_open_1/train/checkpoints/model_100.pt \
+    --iterations 200 \
+    --device cuda \
+    --headless
+```
+
+If `--run-name` is omitted, checkpoints under `logs/pacman_rl/<run>/train/checkpoints/` continue in the same run folder.
+
 Record videos during training:
 
 ```bash
 python pacman_rl/train.py \
     --device cuda \
     --headless \
-    --run-name gt_ppo_medium_video \
     --video \
     --video-every 100 \
     --run-name simple_open_1

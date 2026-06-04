@@ -5,7 +5,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pacman_env import PacmanEnv, Action
+from pacman_env import PacmanEnv, Action, RewardConfig
 from pacman_env.layout import LayoutParser
 
 LAYOUT = """\
@@ -150,3 +150,189 @@ def test_randomize_spawn_off_uses_layout_start():
     env.reset(seed=0)
     assert env.game_state.pacman_pos == (1, 1)
     assert env.game_state.ghost_positions[0] == (3, 1)
+
+
+SPEED_LAYOUT = """\
+%%%%%%
+%P..G%
+%....%
+%%%%%%
+"""
+
+
+def test_ghost_speed_ratio_one_preserves_every_step_movement():
+    env = make_env(SPEED_LAYOUT, ghost_policy="chase", ghost_speed_ratio=1.0)
+    env.reset(seed=0)
+    env.step(Action.NOOP)
+    assert env.game_state.ghost_positions[0] == (3, 1)
+
+
+def test_ghost_speed_ratio_half_moves_every_other_step():
+    env = make_env(SPEED_LAYOUT, ghost_policy="chase", ghost_speed_ratio=0.5)
+    env.reset(seed=0)
+    env.step(Action.NOOP)
+    assert env.game_state.ghost_positions[0] == (4, 1)
+    env.step(Action.NOOP)
+    assert env.game_state.ghost_positions[0] == (3, 1)
+
+
+def test_ghost_speed_ratio_zero_freezes_ghosts():
+    env = make_env(SPEED_LAYOUT, ghost_policy="chase", ghost_speed_ratio=0.0)
+    env.reset(seed=0)
+    for _ in range(3):
+        env.step(Action.NOOP)
+    assert env.game_state.ghost_positions[0] == (4, 1)
+
+
+def test_negative_ghost_speed_ratio_rejected():
+    with pytest.raises(ValueError, match="ghost_speed_ratio"):
+        make_env(SPEED_LAYOUT, ghost_speed_ratio=-0.1)
+
+
+@pytest.mark.parametrize(
+    ("ratio", "steps", "expected_x"),
+    [
+        (0.0, 8, 19),
+        (0.25, 8, 17),
+        (0.33, 8, 17),
+        (0.5, 8, 15),
+        (0.75, 8, 13),
+        (1.0, 8, 11),
+        (1.25, 8, 9),
+        (1.5, 8, 7),
+        (2.0, 8, 3),
+    ],
+)
+def test_ghost_speed_ratio_matches_accumulated_rate(ratio, steps, expected_x):
+    layout = """\
+%%%%%%%%%%%%%%%%%%%%%
+%P.................G%
+%...................%
+%%%%%%%%%%%%%%%%%%%%%
+"""
+    env = make_env(layout, ghost_policy="chase", ghost_speed_ratio=ratio)
+    env.reset(seed=0)
+    for _ in range(steps):
+        env.step(Action.NOOP)
+    assert env.game_state.ghost_positions[0] == (expected_x, 1)
+
+
+REMAINING_REWARD_LAYOUT = """\
+%%%%%%
+%P..G%
+%....%
+%%%%%%
+"""
+
+
+def test_default_reward_has_no_dense_penalty():
+    env = make_env(REMAINING_REWARD_LAYOUT, ghost_speed_ratio=0.0)
+    env.reset(seed=0)
+    _, reward, _, _, info = env.step(Action.RIGHT)
+    assert info["event"]["ate_pellet"]
+    assert info["event"]["remaining_pellets"] == 5
+    assert info["event"]["total_pellets"] == 6
+    assert reward == pytest.approx(1.0)
+
+
+def test_dense_remaining_pellet_ratio_penalty_applies_every_step():
+    env = make_env(
+        REMAINING_REWARD_LAYOUT,
+        ghost_speed_ratio=0.0,
+        reward_config=RewardConfig(dense_remaining_pellet_ratio_penalty=-0.6),
+    )
+    env.reset(seed=0)
+    _, reward, terminated, truncated, info = env.step(Action.RIGHT)
+    assert not terminated
+    assert not truncated
+    assert info["event"]["remaining_pellets"] == 5
+    assert info["event"]["total_pellets"] == 6
+    assert reward == pytest.approx(1.0 - 0.6 * (5 / 6))
+
+
+def test_sparse_remaining_pellet_penalty_not_applied_before_episode_end():
+    env = make_env(
+        REMAINING_REWARD_LAYOUT,
+        ghost_speed_ratio=0.0,
+        reward_config=RewardConfig(sparse_remaining_pellet_penalty=-1.0),
+    )
+    env.reset(seed=0)
+    _, reward, terminated, truncated, info = env.step(Action.RIGHT)
+    assert not terminated
+    assert not truncated
+    assert not info["event"]["episode_ended"]
+    assert reward == pytest.approx(1.0)
+
+
+def test_sparse_remaining_pellet_penalty_applies_on_death():
+    env = make_env(
+        REMAINING_REWARD_LAYOUT,
+        ghost_speed_ratio=0.0,
+        reward_config=RewardConfig(sparse_remaining_pellet_penalty=-1.0),
+    )
+    env.reset(seed=0)
+    _, reward, terminated, truncated, info = env.step(Action.RIGHT)
+    assert not terminated
+    _, reward, terminated, truncated, info = env.step(Action.RIGHT)
+    assert not terminated
+    _, reward, terminated, truncated, info = env.step(Action.RIGHT)
+    assert terminated
+    assert not truncated
+    assert info["event"]["died"]
+    assert info["event"]["episode_ended"]
+    assert info["event"]["remaining_pellets"] == 4
+    assert reward == pytest.approx(-10.0 - 4.0)
+
+
+def test_sparse_remaining_pellet_penalty_applies_on_timeout():
+    env = make_env(
+        REMAINING_REWARD_LAYOUT,
+        ghost_speed_ratio=0.0,
+        max_steps=1,
+        reward_config=RewardConfig(sparse_remaining_pellet_penalty=-0.5),
+    )
+    env.reset(seed=0)
+    _, reward, terminated, truncated, info = env.step(Action.RIGHT)
+    assert not terminated
+    assert truncated
+    assert info["event"]["episode_ended"]
+    assert info["event"]["remaining_pellets"] == 5
+    assert reward == pytest.approx(1.0 - 2.5)
+
+
+def test_sparse_remaining_pellet_penalty_on_win_has_zero_remaining():
+    layout = """\
+%%%%%
+%GP.%
+%%%%%
+"""
+    env = make_env(
+        layout,
+        ghost_speed_ratio=0.0,
+        reward_config=RewardConfig(sparse_remaining_pellet_penalty=-10.0),
+    )
+    env.reset(seed=0)
+    _, reward, terminated, truncated, info = env.step(Action.RIGHT)
+    assert terminated
+    assert not truncated
+    assert info["event"]["won"]
+    assert info["event"]["episode_ended"]
+    assert info["event"]["remaining_pellets"] == 0
+    assert reward == pytest.approx(1.0 + 50.0)
+
+
+def test_sparse_and_dense_remaining_penalties_are_signed():
+    env = make_env(
+        REMAINING_REWARD_LAYOUT,
+        ghost_speed_ratio=0.0,
+        max_steps=1,
+        reward_config=RewardConfig(
+            dense_remaining_pellet_ratio_penalty=0.6,
+            sparse_remaining_pellet_penalty=0.5,
+        ),
+    )
+    env.reset(seed=0)
+    _, reward, _, truncated, info = env.step(Action.RIGHT)
+    assert truncated
+    assert info["event"]["remaining_pellets"] == 5
+    assert reward == pytest.approx(1.0 + 0.6 * (5 / 6) + 0.5 * 5)

@@ -81,6 +81,7 @@ def _make_render_env(env_cfg: dict[str, Any]) -> PacmanEnv:
         num_ghosts=int(ghost_cfg.get("num_ghosts", env_cfg.get("num_ghosts", 1))),
         ghost_epsilon=float(ghost_cfg.get("epsilon", env_cfg.get("ghost_epsilon", 0.2))),
         ghost_policy=str(ghost_cfg.get("policy", env_cfg.get("ghost_policy", "chase_stochastic"))),
+        ghost_speed_ratio=float(ghost_cfg.get("speed_ratio", env_cfg.get("ghost_speed_ratio", 1.0))),
         power_pellet_enabled=bool(power_cfg.get("enabled", env_cfg.get("power_pellet_enabled", False))),
         frightened_duration=int(power_cfg.get("frightened_duration", env_cfg.get("frightened_duration", 30))),
         max_steps=int(episode_cfg.get("max_steps", env_cfg.get("max_steps", 500))),
