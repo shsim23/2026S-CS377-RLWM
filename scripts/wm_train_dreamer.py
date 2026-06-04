@@ -46,6 +46,17 @@ def main() -> None:
     p.add_argument("--seq-len", type=int, default=None)
     p.add_argument("--context", type=int, default=None)
     p.add_argument("--eval-every", type=int, default=None)
+    p.add_argument("--beta-cont", type=float, default=None,
+                   help="Override recon continuous-term weight (positions). See config beta_cont.")
+    p.add_argument("--position-mode", choices=["regress", "twohot"], default=None,
+                   help="Entity-position representation: regress (symlog-MSE) or twohot (grid CE).")
+    p.add_argument("--layout-id", type=int, default=None,
+                   help="Train (and in-loop eval) on a SINGLE layout_id from the dataset.")
+    p.add_argument("--n-eval-windows", type=int, default=None,
+                   help="Override in-loop eval window count (lower = faster dev cycles).")
+    p.add_argument("--save-every", type=int, default=0,
+                   help="Also keep a persistent step-numbered snapshot (step_<N>.pt) "
+                        "every N steps, for comparing intermediate models. 0 = off.")
     args = p.parse_args()
 
     cfg = load_cfg(str(ROOT / args.config) if not Path(args.config).is_absolute() else args.config)
@@ -54,27 +65,39 @@ def main() -> None:
     if args.seq_len is not None: cfg["seq_length"] = args.seq_len
     if args.context is not None: cfg["context"] = args.context
     if args.eval_every is not None: cfg["eval_every"] = args.eval_every
+    if args.beta_cont is not None: cfg["beta_cont"] = args.beta_cont
+    if args.n_eval_windows is not None: cfg["n_eval_windows"] = args.n_eval_windows
+    if args.position_mode is not None: cfg["position_mode"] = args.position_mode
+    cfg.setdefault("beta_cont", 1.0)   # back-compat for older configs
+    cfg.setdefault("position_mode", "regress")
+    cfg.setdefault("pos_bins", 21)
 
     device = args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu"
     torch.manual_seed(args.seed); np.random.seed(args.seed)
 
     data_dir = ROOT / args.data_root / args.dataset
     window = cfg["context"] + cfg["seq_length"]
-    replay = SequenceReplay(str(data_dir), length=window, seed=args.seed)
-    print(f"[data] {data_dir}: {len(replay)} steps | window={window} (context={cfg['context']})")
+    replay = SequenceReplay(str(data_dir), length=window, seed=args.seed, layout_id=args.layout_id)
+    scope = f"layout_id={args.layout_id}" if args.layout_id is not None else "all layouts"
+    print(f"[data] {data_dir}: {len(replay)} steps | {scope} | "
+          f"{replay.valid_starts.size} valid windows | window={window} (context={cfg['context']})")
 
     wm_cfg = WorldModelConfig(
         action_dim=cfg["action_dim"], groups=cfg["groups"], classes=cfg["classes"],
         deter=cfg["deter"], hidden=cfg["hidden"], e_dim=cfg["e_dim"],
         action_emb=cfg["action_emb"], num_bins=cfg["num_bins"],
         vmin=cfg["vmin"], vmax=cfg["vmax"], unimix=cfg["unimix"],
+        position_mode=cfg["position_mode"], pos_bins=cfg["pos_bins"],
     )
     model = DreamerWorldModel(wm_cfg).to(device)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"[model] DreamerWorldModel: {n_params/1e6:.2f}M params on {device}")
+    pos_note = f" (pos_bins={cfg['pos_bins']})" if cfg["position_mode"] == "twohot" else ""
+    print(f"[loss] beta_cont={cfg['beta_cont']} | position_mode={cfg['position_mode']}{pos_note}")
 
     opt = LaProp(model.parameters(), lr=cfg["learning_rate"], betas=tuple(cfg["betas"]))
     reward_bins = model.reward_head.bins
+    pos_bins = model.position_head.bins if model.position_head is not None else None
 
     ckpt_dir = Path(args.checkpoint_dir) if args.checkpoint_dir else ROOT / "checkpoints" / "dreamer_wm" / args.dataset
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -87,7 +110,8 @@ def main() -> None:
         loss, metrics = compute_loss(
             outputs, batch, reward_bins,
             beta_pred=cfg["beta_pred"], beta_dyn=cfg["beta_dyn"], beta_rep=cfg["beta_rep"],
-            free_nats=cfg["free_nats"], context=cfg["context"],
+            free_nats=cfg["free_nats"], context=cfg["context"], beta_cont=cfg["beta_cont"],
+            pos_bins=pos_bins,
         )
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -98,7 +122,8 @@ def main() -> None:
             print(f"step {step:6d} | loss {metrics['loss']:.4f} "
                   f"| pred {metrics['L_pred']:.4f} dyn {metrics['L_dyn']:.3f} rep {metrics['L_rep']:.3f} "
                   f"| rew_mse {metrics['reward_mse']:.4f} cont_acc {metrics['cont_acc']:.3f} "
-                  f"| recon(c {metrics['recon_cont']:.3f}/b {metrics['recon_bin']:.3f})")
+                  f"| recon(c {metrics['recon_cont']:.3f} pos {metrics['recon_pos']:.3f}"
+                  f"*β={metrics['recon_cont_weighted']:.3f}/b {metrics['recon_bin']:.3f})")
             if not np.isfinite(metrics["loss"]):
                 sys.exit("Loss diverged to NaN/Inf — aborting.")
 
@@ -120,6 +145,10 @@ def main() -> None:
                            ckpt_dir / "best.pt")
             torch.save({"model": model.state_dict(), "cfg": vars(wm_cfg), "step": step},
                        ckpt_dir / "latest.pt")
+            if args.save_every and step > 0 and step % args.save_every == 0:
+                torch.save({"model": model.state_dict(), "cfg": vars(wm_cfg), "step": step},
+                           ckpt_dir / f"step_{step:06d}.pt")
+                print(f"  [snapshot] saved step_{step:06d}.pt")
 
     print(f"Done. Checkpoints in {ckpt_dir} (best score {best_metric:.4f})")
 

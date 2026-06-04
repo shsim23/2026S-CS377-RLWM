@@ -93,6 +93,11 @@ def main() -> None:
                    help="Which layout pool to sample from. 'train' for the training "
                         "dataset; 'test' ONLY to build a held-out cross-layout EVAL "
                         "dataset (never mix a test dataset into world-model training).")
+    p.add_argument("--only-layouts", type=int, nargs="+", default=None,
+                   help="Restrict collection to these pool indices (e.g. `0` for the "
+                        "first split layout / train_000). Use to build a SINGLE-MAP "
+                        "dataset. The stored layout_ids are the pool indices, so "
+                        "SequenceReplay(--layout-id N) selects the same map.")
     p.add_argument("--out-root", default="data/replay")
     p.add_argument("--n-transitions", type=int, default=500_000)
     p.add_argument("--seed", type=int, default=0)
@@ -118,6 +123,9 @@ def main() -> None:
                    help="Per-episode probability of using the OPTIMAL checkpoint (else sub-optimal).")
     p.add_argument("--rl-stochastic", action="store_true",
                    help="Sample actions from the policy instead of argmax (off by default).")
+    p.add_argument("--rl-allow-partial", action="store_true",
+                   help="Collect from ONLY the layouts that already have a trained agent "
+                        "(skip the rest with a warning) instead of requiring all of them.")
     p.add_argument("--device", default="cpu", help="Torch device for RL inference.")
     args = p.parse_args()
 
@@ -129,6 +137,17 @@ def main() -> None:
     train_layouts = pool[args.pool_split]
     if not train_layouts:
         sys.exit(f"Layout pool '{args.pool_split}' is empty.")
+
+    # Optional single-/few-map restriction (pool indices).
+    only_layouts = None
+    if args.only_layouts is not None:
+        only_layouts = sorted(set(args.only_layouts))
+        bad = [i for i in only_layouts if not (0 <= i < len(train_layouts))]
+        if bad:
+            sys.exit(f"--only-layouts {bad} out of range (pool '{args.pool_split}' "
+                     f"has {len(train_layouts)} layouts).")
+        print(f"[only-layouts] Restricting collection to pool indices {only_layouts} "
+              f"({[train_layouts[i].get('layout_id', i) for i in only_layouts]}).")
     if args.pool_split == "test":
         print("[WARNING] Collecting from the TEST layout pool. Use this dataset ONLY "
               "for cross-layout evaluation, never for world-model training.")
@@ -145,6 +164,29 @@ def main() -> None:
     # --- policy source ---
     use_rl = args.policy_source == "rl"
     if use_rl:
+        from pathlib import Path as _Path
+
+        def _has_agent(layout_idx: int) -> bool:
+            d = _Path(args.rl_agents_root) / layout_id_of(layout_idx)
+            return (d / "optimal.pt").exists() and (d / "suboptimal.pt").exists()
+
+        # Which layouts to sample from.
+        all_idx = list(range(len(train_layouts))) if only_layouts is None else list(only_layouts)
+        if args.rl_allow_partial:
+            rl_layout_indices = [i for i in all_idx if _has_agent(i)]
+            skipped = [layout_id_of(i) for i in all_idx if i not in rl_layout_indices]
+            if not rl_layout_indices:
+                sys.exit(f"No trained agents found under {args.rl_agents_root}.")
+            if skipped:
+                print(f"[partial] Using {len(rl_layout_indices)}/{len(all_idx)} layouts with "
+                      f"agents; skipping {len(skipped)} without: {skipped}")
+        else:
+            rl_layout_indices = all_idx
+            missing = [layout_id_of(i) for i in rl_layout_indices if not _has_agent(i)]
+            if missing:
+                sys.exit(f"Missing trained agents for {missing} under {args.rl_agents_root} "
+                         f"(use --rl-allow-partial to skip).")
+
         # Lazily build the per-layout optimal/sub-optimal agent pool (cached).
         agent_pools: dict[int, LayoutAgentPool] = {}
 
@@ -156,10 +198,9 @@ def main() -> None:
             return agent_pools[layout_idx]
 
         policies, weights = [], None
-        # Fail fast if any layout is missing an agent (clear error before collecting).
-        for li in range(len(train_layouts)):
+        for li in rl_layout_indices:          # fail fast on the layouts we will use
             get_agent_pool(li)
-        print(f"Loaded RL agents for {len(train_layouts)} layouts from {args.rl_agents_root} "
+        print(f"Loaded RL agents for {len(rl_layout_indices)} layouts from {args.rl_agents_root} "
               f"(optimal {args.rl_optimal_weight:.0%} / sub-optimal {1 - args.rl_optimal_weight:.0%}, "
               f"{'stochastic' if args.rl_stochastic else 'argmax'}).")
     else:
@@ -198,11 +239,13 @@ def main() -> None:
     n_episodes = 0
 
     while total < args.n_transitions:
-        layout_idx = int(rng.integers(len(train_layouts)))
         if use_rl:
+            layout_idx = int(rng.choice(rl_layout_indices))
             policy, tag = get_agent_pool(layout_idx).choose(rng)
             rl_tag_counts[tag] += 1
         else:
+            layout_idx = (int(rng.integers(len(train_layouts))) if only_layouts is None
+                          else int(rng.choice(only_layouts)))
             policy = policies[int(rng.choice(len(policies), p=weights))]
         num_ghosts = int(rng.choice(ghost_choices))
         env = get_env(layout_idx, num_ghosts)

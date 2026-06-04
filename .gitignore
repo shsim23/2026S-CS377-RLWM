@@ -1,0 +1,22 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# ---- Experiment artifacts (large / regenerable) ----
+data/
+logs/
+wandb/
+
+# ---- Checkpoints: ignore all EXCEPT the single-map world model ----
+checkpoints/*
+!checkpoints/dreamer_wm/
+checkpoints/dreamer_wm/*
+!checkpoints/dreamer_wm/rl_single_L0_twohot/
+
+# ---- OS / editor ----
+.DS_Store
+*.swp
+*.swo

@@ -20,7 +20,8 @@ import torch
 
 
 class SequenceReplay:
-    def __init__(self, dataset_dir: str, length: int, seed: Optional[int] = None):
+    def __init__(self, dataset_dir: str, length: int, seed: Optional[int] = None,
+                 layout_id: Optional[int] = None):
         self.dir = Path(dataset_dir)
         self.length = int(length)
         self.states = np.load(self.dir / "states.npy", mmap_mode="r")     # (N, 901)
@@ -35,11 +36,26 @@ class SequenceReplay:
         self.max_start = self.N - self.length
         self.rng = np.random.default_rng(seed)
 
+        # Valid window-start positions. With `layout_id`, keep only windows lying
+        # entirely inside that single layout (single-map training/eval); otherwise
+        # every start is valid (windows may cross episode/layout boundaries).
+        self.layout_id = layout_id
+        if layout_id is None:
+            self.valid_starts = np.arange(self.max_start + 1)
+        else:
+            same = (self.layout_ids == layout_id).astype(np.int64)
+            csum = np.concatenate([[0], np.cumsum(same)])       # prefix sums
+            win_sum = csum[self.length:] - csum[: self.N - self.length + 1]
+            self.valid_starts = np.flatnonzero(win_sum == self.length)
+            if self.valid_starts.size == 0:
+                raise ValueError(
+                    f"No length-{self.length} window fits inside layout_id={layout_id}.")
+
     def __len__(self) -> int:
         return self.N
 
     def sample_batch(self, batch_size: int, device=None) -> dict:
-        starts = self.rng.integers(0, self.max_start + 1, size=batch_size)
+        starts = self.valid_starts[self.rng.integers(0, self.valid_starts.size, size=batch_size)]
         L = self.length
         idx = starts[:, None] + np.arange(L)[None, :]      # (B, L)
 
@@ -58,7 +74,8 @@ class SequenceReplay:
     def iter_eval_windows(self, n_windows: int, device=None, seed: int = 0):
         """Deterministic set of windows for evaluation (fixed across calls)."""
         rng = np.random.default_rng(seed)
-        starts = rng.integers(0, self.max_start + 1, size=n_windows)
+        n = min(n_windows, self.valid_starts.size)
+        starts = rng.choice(self.valid_starts, size=n, replace=False)
         L = self.length
         for s in starts:
             idx = np.arange(s, s + L)

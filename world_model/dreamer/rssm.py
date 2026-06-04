@@ -55,6 +55,21 @@ def _dyn_binary_mask() -> np.ndarray:
 
 DYN_BINARY_MASK = _dyn_binary_mask()      # (460,) bool
 
+# Entity-coordinate indices within the 460-d dynamic vector: pacman (x, y) then
+# each ghost's (x, y). The two-hot/grid PositionHead predicts these as categoricals
+# over grid cells instead of regressing them as scalars.
+POS_DIMS = [0, 1, 2, 3, 6, 7, 10, 11, 14, 15]
+
+
+def _dyn_pos_mask() -> np.ndarray:
+    """Boolean mask over the 460 dynamic dims: True = entity-coordinate dim."""
+    m = np.zeros(DYN_DIM, dtype=bool)
+    m[POS_DIMS] = True
+    return m
+
+
+DYN_POS_MASK = _dyn_pos_mask()            # (460,) bool
+
 
 # --------------------------------------------------------------------------- #
 class LayoutEmbedder(nn.Module):
@@ -171,3 +186,34 @@ class Decoder(nn.Module):
         cont = symexp(raw)
         binv = torch.sigmoid(raw)
         return torch.where(mask, binv, cont)
+
+
+class PositionHead(nn.Module):
+    """Two-hot / grid position head (recon follow-up to the loss rebalance).
+
+    Predicts each entity coordinate (pacman x,y + 4 ghost x,y = 10 coords) as a
+    categorical over `n_bins` grid cells — exactly like the DreamerV3 two-hot
+    reward head — instead of a scalar symlog-MSE regression. The 10 position dims
+    are only 10 of 460 dyn dims, so under the summed recon MSE they were drowned
+    by the 449 binary (food/flag) dims and barely fit; rebalancing (beta_cont)
+    helped 1-step but traded away open-loop rollout. A per-coordinate
+    classification gives a sharp, properly-normalised position target without the
+    MSE blur and a gradient that doesn't vanish against the binary block.
+
+    `bins` span the normalised coord range [-1, 1] at the 21 grid-cell centres
+    (== pacman_env.state._normalize), so the two-hot of an exact cell lands fully
+    on one bin (effectively one-hot classification on clean data)."""
+
+    def __init__(self, deter: int, stoch_dim: int, n_coords: int = 10,
+                 n_bins: int = 21, hidden: int = 256):
+        super().__init__()
+        self.n_coords = n_coords
+        self.n_bins = n_bins
+        self.net = mlp(deter + stoch_dim, hidden, n_coords * n_bins, layers=2)
+        self.register_buffer("bins", torch.linspace(-1.0, 1.0, n_bins))
+
+    def forward(self, h: torch.Tensor, z_flat: torch.Tensor) -> torch.Tensor:
+        """Returns logits (..., n_coords, n_bins). Softmax over the last dim, then
+        two_hot_decode against `bins` for the expected normalised coordinate."""
+        logits = self.net(torch.cat([h, z_flat], dim=-1))
+        return logits.reshape(*logits.shape[:-1], self.n_coords, self.n_bins)

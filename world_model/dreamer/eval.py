@@ -39,7 +39,7 @@ def one_step_and_collapse(model: DreamerWorldModel, batch: dict, context: int = 
     out = model.observe(batch["states"], batch["actions"], batch["is_first"])
     sl = slice(context, None)
 
-    recon_state = model.decoder.reconstruct(out["recon"])
+    recon_state = model.reconstruct_with_pos(out["recon"], out.get("position_logits"))
     cont_mse, bin_acc = _dyn_errors(recon_state[:, sl], batch["states"][:, sl])
 
     reward_pred = model.reward_from_logits(out["reward_logits"])
@@ -89,7 +89,7 @@ def k_step_rollout(model: DreamerWorldModel, batch: dict, context: int, horizon:
         z = OneHotCategoricalST(prior_logits, model.cfg.unimix).sample_st()
         z_flat = model._flat(z)
 
-        recon_state = model.decoder.reconstruct(model.decoder(h, z_flat))
+        recon_state = model.decode_state(h, z_flat)
         cmse, _ = _dyn_errors(recon_state.unsqueeze(1), states[:, t:t + 1])
         cont_mse_h.append(cmse)
 

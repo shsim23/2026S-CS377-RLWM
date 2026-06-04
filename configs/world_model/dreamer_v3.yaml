@@ -19,6 +19,20 @@ world_model:
   beta_dyn: 0.5
   beta_rep: 0.1
   free_nats: 1.0        # free bits = 1 nat per KL term
+  # Recon rebalancing: up-weight the continuous block (11 dyn dims = pacman/ghost
+  # xy + power) so it isn't drowned by the 449 binary dims (mostly 441 food cells)
+  # in the summed recon NLL. At convergence raw l_bin≈2-6 vs l_cont≈0.13, so a
+  # ~20-40× weight makes their magnitudes comparable. 1.0 = original behaviour.
+  beta_cont: 25.0
+  # Entity-position representation:
+  #   "regress" — scalar symlog-MSE (original); needs beta_cont up-weighting and
+  #               trades 1-step accuracy against open-loop rollout stability.
+  #   "twohot"  — each of the 10 entity coords (pacman xy + 4 ghost xy) is a
+  #               categorical over `pos_bins` grid cells (DreamerV3 two-hot style);
+  #               sharp positions without MSE blur. beta_cont then weights the
+  #               position cross-entropy (use ~1.0 to start).
+  position_mode: regress
+  pos_bins: 21          # grid cells per coordinate in twohot mode (== MAX_GRID)
 
   # --- training (spec §7) ---
   batch_size: 16

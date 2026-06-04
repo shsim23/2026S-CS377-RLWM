@@ -9,6 +9,8 @@ Pac-Man 환경에서 **JEPA-style world model**을 학습하고, 그 위에서 �
 
 월드 모델의 설계가 어떻게 진화해왔는지(reward head 제거, dynamic state head 추가, FoodEatenHead 도입 등)는 [`world_model_implementation.md`](world_model_implementation.md)를 참고하세요.
 
+> 🟡 **단일맵(map 000) WM eval & 시각화 빠른 가이드:** [`docs/single_map_eval.md`](docs/single_map_eval.md) — 학습된 단일맵 월드모델 평가(수치/이미지/GIF) 방법과 텍스트 → 팩맨 렌더링 사용법을 핵심만 정리.
+
 ---
 
 ## 1. 환경 설치

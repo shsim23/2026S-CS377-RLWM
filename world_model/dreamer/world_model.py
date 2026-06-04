@@ -24,7 +24,7 @@ import torch.nn.functional as F
 from .nn import OneHotCategoricalST, two_hot_decode, symexp
 from .rssm import (
     LayoutEmbedder, SequenceModel, Encoder, DynamicsPredictor,
-    RewardHead, ContinueHead, Decoder,
+    RewardHead, ContinueHead, Decoder, PositionHead, POS_DIMS,
     WALL_SLICE,
 )
 
@@ -42,6 +42,8 @@ class WorldModelConfig:
     vmin: float = -20.0
     vmax: float = 20.0
     unimix: float = 0.01          # 1% unimix (spec §4.1)
+    position_mode: str = "regress"  # "regress" (symlog-MSE scalar) | "twohot" (grid CE)
+    pos_bins: int = 21              # grid bins per coordinate in twohot mode
 
     @property
     def stoch_dim(self) -> int:
@@ -62,6 +64,11 @@ class DreamerWorldModel(nn.Module):
                                       c.vmin, c.vmax, c.hidden)
         self.cont_head = ContinueHead(c.deter, c.stoch_dim, c.hidden)
         self.decoder = Decoder(c.deter, c.stoch_dim, c.hidden)
+        self.position_head = (
+            PositionHead(c.deter, c.stoch_dim, n_coords=len(POS_DIMS),
+                         n_bins=c.pos_bins, hidden=c.hidden)
+            if c.position_mode == "twohot" else None
+        )
         # expose for downstream / interface convenience
         self.latent_dim = c.stoch_dim
         self.gru_hidden = c.deter
@@ -128,11 +135,14 @@ class DreamerWorldModel(nn.Module):
         recon = self.decoder(h_seq, z_flat)              # (B, L, 460)
         reward_logits = self.reward_head(h_seq, z_flat)  # (B, L, K)
         cont_logits = self.cont_head(h_seq, z_flat)      # (B, L)
+        position_logits = (self.position_head(h_seq, z_flat)   # (B, L, 10, bins)
+                           if self.position_head is not None else None)
 
         return {
             "h": h_seq, "z": z_seq,
             "post_logits": post_logits, "prior_logits": prior_logits,
             "recon": recon, "reward_logits": reward_logits, "cont_logits": cont_logits,
+            "position_logits": position_logits,
         }
 
     # ------------------------------------------------------------------ #
@@ -168,7 +178,25 @@ class DreamerWorldModel(nn.Module):
         cont = torch.sigmoid(self.cont_head(h_next, z_flat))
         return {"h": h_next, "z_next": z_next, "reward": reward, "cont": cont}
 
+    def reconstruct_with_pos(self, recon_raw: torch.Tensor,
+                             position_logits: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Decoder raw output → actual dynamic-state values, overwriting the 10
+        entity-coordinate dims with the two-hot PositionHead's expected cell when
+        in twohot mode (`position_logits` given). Regress mode: pass None."""
+        state = Decoder.reconstruct(recon_raw)
+        if position_logits is not None:
+            coords = two_hot_decode(F.softmax(position_logits, dim=-1),
+                                    self.position_head.bins)        # (..., 10)
+            state = state.clone()
+            state[..., POS_DIMS] = coords.to(state.dtype)
+        return state
+
+    def decode_state(self, h: torch.Tensor, z_flat: torch.Tensor) -> torch.Tensor:
+        """Full reconstructed dynamic state from {h, z_flat} (eval / rollout)."""
+        raw = self.decoder(h, z_flat)
+        pos = self.position_head(h, z_flat) if self.position_head is not None else None
+        return self.reconstruct_with_pos(raw, pos)
+
     def decode(self, h: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
         """Reconstruct the ~460-d dynamic state from {h, z} (eval/debug)."""
-        raw = self.decoder(h, self._flat(z))
-        return Decoder.reconstruct(raw)
+        return self.decode_state(h, self._flat(z))
