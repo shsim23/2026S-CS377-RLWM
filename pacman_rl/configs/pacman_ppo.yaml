@@ -3,7 +3,7 @@ iterations: 2000  # Total number of training iterations
 log_root: logs/pacman_rl
 
 env:
-  layout_file: layouts/train/small_open.txt
+  layout_file: layouts/wm_pool/train/layout_000.txt
   num_envs: 64  # Number of parallel environments to run for data collection
   seed: 42
   randomize_spawn: true
@@ -30,7 +30,7 @@ env:
 
 train:
   num_steps_per_env: 128  # Number of steps to collect per environment before updating
-  save_interval: 200  # Save checkpoint every N iterations
+  save_interval: 500  # Save checkpoint every N iterations
   logger: tensorboard
   obs_groups:
     actor: [policy]
