@@ -15,6 +15,7 @@ checkpoints/*
 !checkpoints/dreamer_wm/
 checkpoints/dreamer_wm/*
 !checkpoints/dreamer_wm/rl_single_L0_twohot/
+!checkpoints/dreamer_wm/rl_single_L0_v2_twohot/
 !checkpoints/pacman_rl/
 
 # ---- OS / editor ----

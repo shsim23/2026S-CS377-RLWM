@@ -14,6 +14,7 @@ LAYOUT_ID="${LAYOUT_ID:-0}"                       # pool index (0 = train_000)
 DATASET="${DATASET:-rl_single_L${LAYOUT_ID}}"
 N_TRANSITIONS="${N_TRANSITIONS:-150000}"          # plenty of coverage for one map
 GHOSTS="${GHOSTS:-1 2 3 4}"
+AGENTS_ROOT="${AGENTS_ROOT:-checkpoints/rl_agents}"  # per-layout PPO agents (optimal/suboptimal)
 # --- WM training (proper single-map schedule, two-hot positions) ---
 POSITION_MODE="${POSITION_MODE:-twohot}"
 BETA_CONT="${BETA_CONT:-1.0}"
@@ -33,14 +34,14 @@ LOG="$ROOT/logs/wm_pipeline/single_map_${DATASET}_${STAMP}.log"
 mkdir -p "$ROOT/logs/wm_pipeline"
 log() { echo "[$(date '+%H:%M:%S')] $*" | tee -a "$LOG"; }
 
-log "=== single-map pipeline: layout $LAYOUT_ID -> dataset $DATASET ==="
+log "=== single-map pipeline: layout $LAYOUT_ID -> dataset $DATASET (agents=$AGENTS_ROOT) ==="
 log "    train: position_mode=$POSITION_MODE beta_cont=$BETA_CONT batch=$BATCH seq=$SEQ steps=$STEPS"
 
 log "[1/3] Collecting $N_TRANSITIONS transitions for layout $LAYOUT_ID ..."
 "$PY" scripts/wm_collect_dataset.py --dataset "$DATASET" --pool-split train \
     --only-layouts "$LAYOUT_ID" --n-transitions "$N_TRANSITIONS" \
     --ghost-choices $GHOSTS --seed 0 \
-    --policy-source rl --rl-agents-root checkpoints/rl_agents \
+    --policy-source rl --rl-agents-root "$AGENTS_ROOT" \
     --rl-optimal-weight 0.7 --device cpu 2>&1 | tee -a "$LOG"
 if [ "${PIPESTATUS[0]}" -ne 0 ]; then log "ERROR: collection failed."; exit 1; fi
 
