@@ -11,8 +11,9 @@ sys.path.insert(0, str(ROOT))
 
 from rsl_rl.runners import OnPolicyRunner
 
-from pacman_rl.config import load_yaml, make_env_cfg, make_train_cfg, resolve_path
+from pacman_rl.config import load_yaml, make_env_cfg, make_train_cfg, make_world_model_cfg, resolve_path
 from pacman_rl.vec_env import RslPacmanVecEnv
+from pacman_rl.wm_env import RslPacmanDreamerVecEnv
 from pacman_rl.video import record_policy_video, video_path
 
 
@@ -38,6 +39,7 @@ def main() -> None:
 
     config = load_yaml(args.config)
     env_cfg = make_env_cfg(config, layout_file=args.layout, num_envs=args.num_envs, seed=args.seed)
+    wm_cfg = make_world_model_cfg(config)
     device = args.device or config.get("device", "cuda")
     iterations = int(args.iterations or config.get("iterations", 1000))
     log_root = resolve_path(args.log_root or config.get("log_root", "logs/pacman_rl"))
@@ -45,6 +47,12 @@ def main() -> None:
     inferred_run_name = _infer_run_name_from_resume(resume_path, log_root) if resume_path is not None else None
     run_name = args.run_name or inferred_run_name or datetime.now().strftime("%Y%m%d_%H%M%S")
     train_cfg = make_train_cfg(config, run_name=run_name)
+    if (
+        bool(wm_cfg.get("use_wm", False))
+        and bool(wm_cfg.get("use_uncertainty_aware_methods", False))
+        and bool(wm_cfg.get("confidence_weight_ppo", True))
+    ):
+        train_cfg.setdefault("algorithm", {})["class_name"] = "pacman_rl.wm_ppo.ConfidenceWeightedPPO"
     run_dir = log_root / run_name
     train_dir = run_dir / "train"
     checkpoint_dir = train_dir / "checkpoints"
@@ -54,7 +62,16 @@ def main() -> None:
     print(f"Run directory: {run_dir}")
     print(f"TensorBoard: tensorboard --logdir {train_dir}")
 
-    env = RslPacmanVecEnv(env_cfg, device=device)
+    if bool(wm_cfg.get("use_wm", False)):
+        env = RslPacmanDreamerVecEnv(env_cfg, wm_cfg, device=device)
+        print(f"Training PPO from world model: {wm_cfg.get('checkpoint')}")
+        if bool(wm_cfg.get("use_uncertainty_aware_methods", False)):
+            print("Uncertainty-aware WM-RL enabled.")
+        else:
+            print("Vanilla WM-PPO ablation: uncertainty-aware methods disabled.")
+    else:
+        env = RslPacmanVecEnv(env_cfg, device=device)
+        print("Training PPO on ground-truth Pac-Man env.")
     runner = OnPolicyRunner(env, train_cfg, log_dir=str(train_dir), device=device)
     runner.add_git_repo_to_log(str(ROOT))
     _use_total_progress_eta(runner, total_iterations=iterations)

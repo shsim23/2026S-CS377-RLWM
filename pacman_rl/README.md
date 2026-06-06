@@ -1,6 +1,6 @@
 # Pac-Man PPO Baseline (`pacman_rl`)
 
-This package trains PPO directly on the ground-truth `pacman_env.PacmanEnv`. It does not use the learned world model yet. Observations are the same 901-dimensional state vector produced by `StateBuilder`, and rewards are the raw Pac-Man reward from `pacman_env/reward.py`.
+This package trains PPO directly on the ground-truth `pacman_env.PacmanEnv` by default. The WM-RL path uses the same PPO runner interface and collects rollouts from the Dreamer world model when `world_model.use_wm: true` in `pacman_rl/configs/pacman_ppo.yaml`. Observations stay the same 901-dimensional state vector produced by `StateBuilder`.
 
 Run output layout:
 
@@ -38,6 +38,43 @@ print(torch.__version__)
 print(torch.version.cuda)
 print(torch.cuda.is_available())
 PY
+```
+
+## World-Model PPO
+
+`pacman_ppo.yaml` now includes a top-level `world_model` section next to `env` and `train`:
+
+- `world_model.use_wm: false` keeps the current ground-truth environment training path.
+- `world_model.use_wm: true` trains PPO from Dreamer imagined transitions using the same `env` layout, spawn, action-space, and episode-length settings for WM inference setup.
+- `world_model.use_uncertainty_aware_methods: false` is the vanilla WM-PPO ablation: imagined rollouts are used, but PPO losses are not confidence-weighted and rollouts are not truncated by uncertainty.
+- `world_model.use_uncertainty_aware_methods: true` enables confidence-weighted PPO updates and adaptive imagined-rollout truncation.
+
+The uncertainty-aware method is described in [`docs/uncertainty_aware_wm_rl.md`](../docs/uncertainty_aware_wm_rl.md).
+
+WM-PPO smoke / ablation example:
+
+```bash
+python pacman_rl/train.py \
+    --config pacman_rl/configs/pacman_ppo.yaml \
+    --device cuda \
+    --headless \
+    --run-name wm_vanilla_1
+```
+
+Set these config values for vanilla WM-PPO:
+
+```yaml
+world_model:
+  use_wm: true
+  use_uncertainty_aware_methods: false
+```
+
+Set these config values for reliability-aware WM-PPO:
+
+```yaml
+world_model:
+  use_wm: true
+  use_uncertainty_aware_methods: true
 ```
 
 ## Train

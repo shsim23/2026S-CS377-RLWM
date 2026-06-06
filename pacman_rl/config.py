@@ -41,3 +41,10 @@ def make_train_cfg(config: dict[str, Any], run_name: str | None = None) -> dict[
     if run_name is not None:
         train_cfg["run_name"] = run_name
     return train_cfg
+
+
+def make_world_model_cfg(config: dict[str, Any]) -> dict[str, Any]:
+    wm_cfg = deepcopy(config.get("world_model", {}))
+    if "checkpoint" in wm_cfg:
+        wm_cfg["checkpoint"] = str(resolve_path(wm_cfg["checkpoint"]))
+    return wm_cfg
