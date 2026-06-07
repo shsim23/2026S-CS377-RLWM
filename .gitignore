@@ -19,6 +19,10 @@ checkpoints/dreamer_wm/*
 !checkpoints/dreamer_wm/small_open_wm_twohot/
 checkpoints/dreamer_wm/small_open_wm_twohot/*
 !checkpoints/dreamer_wm/small_open_wm_twohot/best.pt
+!checkpoints/dreamer_wm/small_open_mix12_twohot/
+checkpoints/dreamer_wm/small_open_mix12_twohot/*
+!checkpoints/dreamer_wm/small_open_mix12_twohot/best.pt
+!checkpoints/dreamer_wm/small_open_mix12_twohot/latest.pt
 !checkpoints/pacman_rl/
 
 # ---- OS / editor ----
