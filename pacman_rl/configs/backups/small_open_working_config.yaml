@@ -29,12 +29,10 @@ env:
     dense_remaining_pellet_ratio_penalty: -0.0  # Penalty per remaining pellet ratio (remaining_pellets / total_pellets)
 
 world_model:
-  use_wm: true  # false = train PPO on the ground-truth env; true = train PPO from WM imagined transitions
-  checkpoint: checkpoints/dreamer_wm/small_open_wm_twohot/best.pt
+  use_wm: false  # false = train PPO on the ground-truth env; true = train PPO from WM imagined transitions
+  checkpoint: checkpoints/dreamer_wm/rl_single_L0_v2_twohot/best.pt
   deterministic_latent: false
   continue_threshold: 0.5
-  reward_source: decoded_rules  # reward_head | decoded_rules
-  log_reward_sources: true
 
   # Top-level ablation switch for uncertainty-aware WM-RL. When false and
   # use_wm=true, train vanilla PPO on imagined WM rollouts without confidence
@@ -42,7 +40,7 @@ world_model:
   use_uncertainty_aware_methods: false
 
   # Confidence-weighted PPO updates.
-  confidence_weight_ppo: true
+  confidence_weight_ppo: false
   confidence_alpha: 0.5
   min_confidence: 0.1
 
@@ -64,7 +62,7 @@ world_model:
 
 train:
   num_steps_per_env: 128  # Number of steps to collect per environment before updating
-  save_interval: 200  # Save checkpoint every N iterations
+  save_interval: 200 # Save checkpoint every N iterations
   logger: tensorboard
   obs_groups:
     actor: [policy]

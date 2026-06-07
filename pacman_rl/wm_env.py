@@ -21,6 +21,7 @@ NOOP_ACTION = int(Action.NOOP)
 
 
 from pacman_rl.wm_reliability import ReliabilityStats, RuleBasedTransitionScorer, RunningMean
+from pacman_rl.wm_rewards import DecodedStateRewardComputer
 
 
 class RslPacmanDreamerVecEnv(VecEnv):
@@ -45,10 +46,15 @@ class RslPacmanDreamerVecEnv(VecEnv):
         self.secondary_rule_threshold = float(self.wm_cfg.get("secondary_rule_threshold", 1.0))
         self.secondary_prior_threshold = float(self.wm_cfg.get("secondary_prior_threshold", 2.0))
         self.continue_threshold = float(self.wm_cfg.get("continue_threshold", 0.5))
+        self.reward_source = str(self.wm_cfg.get("reward_source", "reward_head"))
+        if self.reward_source not in {"reward_head", "decoded_rules"}:
+            raise ValueError("world_model.reward_source must be one of: reward_head, decoded_rules")
+        self.log_reward_sources = bool(self.wm_cfg.get("log_reward_sources", True))
         momentum = float(self.wm_cfg.get("running_mean_momentum", 0.99))
         self.rule_mean = RunningMean(momentum=momentum, device=self.device)
         self.prior_mean = RunningMean(momentum=momentum, device=self.device)
         self.scorer = RuleBasedTransitionScorer(self.wm_cfg)
+        self.decoded_reward_computer = DecodedStateRewardComputer(self.cfg)
 
         self.envs = [self._make_seed_env() for _ in range(self.num_envs)]
         self.episode_length_buf = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
@@ -61,6 +67,8 @@ class RslPacmanDreamerVecEnv(VecEnv):
         self._h, self._z = self.model.initial_state(self.num_envs, self.device)
         self._e = torch.zeros(self.num_envs, self.model.cfg.e_dim, dtype=torch.float32, device=self.device)
         self._wall = torch.zeros(self.num_envs, 441, dtype=torch.float32, device=self.device)
+        self._initial_power = torch.zeros(self.num_envs, 441, dtype=torch.float32, device=self.device)
+        self._total_pellets = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
 
         base_seed = int(self.cfg.get("seed", 0))
         for i in range(self.num_envs):
@@ -79,7 +87,7 @@ class RslPacmanDreamerVecEnv(VecEnv):
         dist = OneHotCategoricalST(prior_logits, self.model.cfg.unimix)
         z_next = dist.mode() if bool(self.wm_cfg.get("deterministic_latent", False)) else dist.sample_st()
         z_flat = self.model._flat(z_next)
-        reward = self.model.reward_from_logits(self.model.reward_head(h_next, z_flat)).float()
+        reward_head = self.model.reward_from_logits(self.model.reward_head(h_next, z_flat)).float()
         cont_logits = self.model.cont_head(h_next, z_flat)
         cont = torch.sigmoid(cont_logits)
         done_prob = 1.0 - cont
@@ -89,14 +97,28 @@ class RslPacmanDreamerVecEnv(VecEnv):
         reliability = self._reliability(prev_obs, pred_obs, action_ids, prior_logits, done_prob)
         wm_done = cont < self.continue_threshold
         timeout = self.episode_length_buf + 1 >= self.max_episode_length
-        dones = wm_done | timeout
+        base_dones = wm_done | timeout
         if self.use_uncertainty and bool(self.wm_cfg.get("adaptive_rollout_truncation", True)):
-            dones = dones | reliability.rule_truncate | reliability.secondary_truncate
+            base_dones = base_dones | reliability.rule_truncate | reliability.secondary_truncate
+
+        decoded_reward = self.decoded_reward_computer.compute(
+            prev_obs,
+            pred_obs,
+            episode_ended=base_dones,
+            total_pellets=self._total_pellets,
+            initial_power=self._initial_power,
+        )
+        reward = decoded_reward.reward if self.reward_source == "decoded_rules" else reward_head
+        dones = base_dones
+        if self.reward_source == "decoded_rules":
+            dones = dones | decoded_reward.win.bool() | decoded_reward.death.bool()
 
         self._episode_returns += reward
         self.episode_length_buf += 1
         completed_returns: list[float] = []
         completed_lengths: list[int] = []
+        completed_wins: list[float] = []
+        completed_deaths: list[float] = []
         completed_timeouts: list[float] = []
         completed_pellets_remaining: list[float] = []
 
@@ -104,10 +126,12 @@ class RslPacmanDreamerVecEnv(VecEnv):
         self._h = h_next
         self._z = z_next
 
-        pellets_remaining = (self._obs[:, FOOD_SLICE] > 0.5).float().sum(dim=1)
+        pellets_remaining = decoded_reward.remaining_pellets
         for i in torch.nonzero(dones, as_tuple=False).flatten().tolist():
             completed_returns.append(float(self._episode_returns[i].item()))
             completed_lengths.append(int(self.episode_length_buf[i].item()))
+            completed_wins.append(float(decoded_reward.win[i].item()))
+            completed_deaths.append(float(decoded_reward.death[i].item()))
             completed_timeouts.append(float(timeout[i].item()))
             completed_pellets_remaining.append(float(pellets_remaining[i].item()))
             self._reset_one(i)
@@ -122,15 +146,29 @@ class RslPacmanDreamerVecEnv(VecEnv):
                 "/wm/confidence": reliability.confidence,
                 "/wm/rule_truncation_rate": reliability.rule_truncate.float(),
                 "/wm/secondary_truncation_rate": reliability.secondary_truncate.float(),
+                "/pacman/win_rate": decoded_reward.win,
+                "/pacman/death_rate": decoded_reward.death,
+                "/pacman/timeout_failure_rate": timeout.float(),
                 "/pacman/pellets_remaining": pellets_remaining,
             },
         }
+        if self.log_reward_sources:
+            extras["log"].update({
+                "/wm/reward_head": reward_head,
+                "/wm/reward_decoded_rules": decoded_reward.reward,
+                "/wm/reward_delta_head_minus_rules": reward_head - decoded_reward.reward,
+                "/wm/reward_source_is_decoded": torch.full(
+                    (self.num_envs,), float(self.reward_source == "decoded_rules"), dtype=torch.float32, device=self.device
+                ),
+            })
         if reliability.u_prior_norm is not None:
             extras["log"]["/wm/u_prior_norm"] = reliability.u_prior_norm
         if completed_returns:
             extras["episode"] = {
                 "return": torch.tensor(completed_returns, dtype=torch.float32, device=self.device),
                 "length": torch.tensor(completed_lengths, dtype=torch.float32, device=self.device),
+                "win": torch.tensor(completed_wins, dtype=torch.float32, device=self.device),
+                "death": torch.tensor(completed_deaths, dtype=torch.float32, device=self.device),
                 "timeout": torch.tensor(completed_timeouts, dtype=torch.float32, device=self.device),
                 "pellets_remaining": torch.tensor(completed_pellets_remaining, dtype=torch.float32, device=self.device),
             }
@@ -180,6 +218,10 @@ class RslPacmanDreamerVecEnv(VecEnv):
         h, z = self.model.encode(obs, h0, noop, e, z_prev=z0)
         self._obs[idx] = obs.squeeze(0)
         self._wall[idx] = wall.squeeze(0)
+        self._total_pellets[idx] = float(getattr(self.envs[idx], "_total_pellets", (obs[:, FOOD_SLICE] > 0.5).sum().item()))
+        self._initial_power[idx] = torch.as_tensor(
+            self.envs[idx].layout.to_padded_arrays()["initial_power"].reshape(-1), dtype=torch.float32, device=self.device
+        )
         self._e[idx] = e.squeeze(0)
         self._h[idx] = h.squeeze(0)
         self._z[idx] = z.squeeze(0)
