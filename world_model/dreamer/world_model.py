@@ -42,6 +42,7 @@ class WorldModelConfig:
     vmin: float = -20.0
     vmax: float = 20.0
     unimix: float = 0.01          # 1% unimix (spec §4.1)
+    gru_blocks: int = 1           # >1 = block-diagonal GRU (DreamerV3 `blocks`)
     position_mode: str = "regress"  # "regress" (symlog-MSE scalar) | "twohot" (grid CE)
     pos_bins: int = 21              # grid bins per coordinate in twohot mode
 
@@ -57,7 +58,7 @@ class DreamerWorldModel(nn.Module):
         c = cfg
         self.layout_embedder = LayoutEmbedder(c.e_dim, c.hidden)
         self.seq = SequenceModel(c.stoch_dim, c.action_dim, c.e_dim,
-                                 c.deter, c.hidden, c.action_emb)
+                                 c.deter, c.hidden, c.action_emb, c.gru_blocks)
         self.encoder = Encoder(c.deter, c.groups, c.classes, c.hidden)
         self.prior = DynamicsPredictor(c.deter, c.groups, c.classes, c.hidden)
         self.reward_head = RewardHead(c.deter, c.stoch_dim, c.num_bins,

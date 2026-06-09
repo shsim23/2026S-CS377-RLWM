@@ -1,0 +1,46 @@
+# Model B — DreamerV3 `size12m` dimensions + block-diagonal GRU (~8M params).
+# Matches DreamerV3's size12m world-model preset (deter=2048, hidden=256,
+# classes=16, stoch/groups=32) and its blocked GRU (blocks=8), which keeps the
+# wide recurrent state affordable: a full GRU at deter=2048 would balloon to ~19M;
+# the block-diagonal recurrent transform brings the world model to ~8M.
+# Same data / loss / twohot recipe as small_open_3m.yaml for a clean A/B.
+world_model:
+  # --- architecture (DreamerV3 size12m) ---
+  action_dim: 5
+  groups: 32            # stoch groups (DreamerV3 stoch=32)
+  classes: 16           # classes per group (DreamerV3 size12m classes=16; latent = 32x16 = 512)
+  deter: 2048           # GRU recurrent units (DreamerV3 size12m deter=2048)
+  hidden: 256           # MLP hidden units (DreamerV3 size12m units=256)
+  e_dim: 32             # layout embedding dim
+  action_emb: 16
+  num_bins: 255         # two-hot reward buckets
+  vmin: -20.0           # reward support (symlog space)
+  vmax: 20.0
+  unimix: 0.01          # 1% unimix
+  gru_blocks: 8         # block-diagonal GRU (DreamerV3 size12m blocks=8)
+
+  # --- objective ---
+  beta_pred: 1.0
+  beta_dyn: 0.5
+  beta_rep: 0.1
+  free_nats: 1.0
+  beta_cont: 1.0        # twohot mode: weights the position cross-entropy
+  position_mode: twohot
+  pos_bins: 21          # grid cells per coordinate in twohot mode
+
+  # --- training ---
+  batch_size: 32
+  seq_length: 64        # loss steps per sequence
+  context: 8            # warm-up steps (excluded from loss)
+  learning_rate: 1.0e-4
+  optimizer: laprop
+  agc_clip: 0.3
+  betas: [0.9, 0.999]
+
+  max_train_steps: 50000
+  eval_every: 2000
+  log_every: 100
+  # --- eval ---
+  k_step: 32
+  n_eval_windows: 64
+  eval_seed: 0

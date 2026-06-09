@@ -84,18 +84,63 @@ class LayoutEmbedder(nn.Module):
         return self.net(wall_mask)
 
 
+class BlockGRUCell(nn.Module):
+    """Block-diagonal GRU cell (DreamerV3 `blocks`).
+
+    Identical to a plain GRUCell except the recurrent (h→h) transform is
+    block-diagonal across `blocks` groups: block k's recurrent contribution comes
+    only from block k of h, while the input→h transform stays dense. This cuts the
+    recurrent weight params by ~`blocks`× (the term that dominates at large deter)
+    so a wide recurrent state stays affordable. blocks=1 reduces to a standard GRU.
+    """
+
+    def __init__(self, input_size: int, hidden_size: int, blocks: int = 8):
+        super().__init__()
+        if hidden_size % blocks != 0:
+            raise ValueError(f"hidden_size {hidden_size} not divisible by blocks {blocks}")
+        self.hidden_size = hidden_size
+        self.blocks = blocks
+        self.bs = hidden_size // blocks
+        # input → 3 gates (dense), bias folded into the recurrent term below
+        self.in_w = nn.Linear(input_size, 3 * hidden_size, bias=False)
+        # h → 3 gates, block-diagonal: per-block (bs → 3*bs)
+        self.h_w = nn.Parameter(torch.empty(blocks, self.bs, 3 * self.bs))
+        nn.init.xavier_uniform_(self.h_w)
+        self.bias = nn.Parameter(torch.zeros(blocks, 3 * self.bs))
+
+    def forward(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
+        B = x.shape[0]
+        gx = self.in_w(x).view(B, self.blocks, 3 * self.bs)
+        hb = h.view(B, self.blocks, self.bs)
+        gh = torch.einsum("bkc,kcd->bkd", hb, self.h_w) + self.bias
+        gx_r, gx_z, gx_n = gx.split(self.bs, dim=-1)
+        gh_r, gh_z, gh_n = gh.split(self.bs, dim=-1)
+        r = torch.sigmoid(gx_r + gh_r)
+        z = torch.sigmoid(gx_z + gh_z)
+        n = torch.tanh(gx_n + r * gh_n)
+        h_new = (1.0 - z) * n + z * hb
+        return h_new.reshape(B, self.hidden_size)
+
+
 class SequenceModel(nn.Module):
-    """Layout-conditioned GRU core: h_t = f(h_{t-1}, z_{t-1}, a_{t-1}, e)."""
+    """Layout-conditioned GRU core: h_t = f(h_{t-1}, z_{t-1}, a_{t-1}, e).
+
+    `gru_blocks > 1` swaps the plain GRUCell for a block-diagonal one (DreamerV3
+    `blocks`), keeping a wide recurrent state affordable; gru_blocks=1 is the
+    original full GRU.
+    """
 
     def __init__(self, stoch_dim: int, action_dim: int, e_dim: int,
-                 deter: int = 256, hidden: int = 256, action_emb: int = 16):
+                 deter: int = 256, hidden: int = 256, action_emb: int = 16,
+                 gru_blocks: int = 1):
         super().__init__()
         self.action_embed = nn.Embedding(action_dim, action_emb)
         self.in_proj = nn.Sequential(
             nn.Linear(stoch_dim + action_emb + e_dim, hidden),
             RMSNorm(hidden), nn.SiLU(),
         )
-        self.gru = nn.GRUCell(hidden, deter)
+        self.gru = (BlockGRUCell(hidden, deter, blocks=gru_blocks)
+                    if gru_blocks > 1 else nn.GRUCell(hidden, deter))
         self.deter = deter
 
     def forward(self, h_prev: torch.Tensor, z_prev_flat: torch.Tensor,
