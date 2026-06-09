@@ -44,21 +44,18 @@ world_model:
   confidence_alpha: 0.5
   min_confidence: 0.1
 
+  # Self-ensemble uncertainty from repeated stochastic WM inference.
+  self_ensemble_inferences: 5
+  self_ensemble_component_weights:
+    pacman_position: 1.0
+    ghost_positions: 1.0
+    food_mask: 1.0
+    power_timer: 1.0
+  self_ensemble_threshold: 2.0
+  running_mean_momentum: 0.99
+
   # Adaptive imagined-rollout truncation.
   adaptive_rollout_truncation: true
-  rule_threshold: 2.0
-  secondary_rule_threshold: 1.0
-  secondary_prior_threshold: 2.0
-
-  # Reliability score normalization and components.
-  running_mean_momentum: 0.99
-  use_prior_entropy: true
-  wall_violation_penalty: 1.0
-  bounds_violation_penalty: 1.0
-  food_appearance_penalty: 1.0
-  invalid_food_removal_penalty: 1.0
-  enable_collision_done_check: true
-  collision_done_penalty: 1.0
 
 train:
   num_steps_per_env: 128  # Number of steps to collect per environment before updating

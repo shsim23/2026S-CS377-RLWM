@@ -30,16 +30,25 @@ env:
 
 world_model:
   use_wm: true  # false = train PPO on the ground-truth env; true = train PPO from WM imagined transitions
-  checkpoint: checkpoints/dreamer_wm/small_open_wm_twohot/best.pt
+  checkpoint: checkpoints/dreamer_wm/small_open_mix12_newrwd_modelB_12m/best.pt
   deterministic_latent: false
   continue_threshold: 0.5
-  reward_source: decoded_rules  # reward_head | decoded_rules
+  reward_source: reward_head  # reward_head | decoded_rules
   log_reward_sources: true
 
   # Top-level ablation switch for uncertainty-aware WM-RL. When false and
   # use_wm=true, train vanilla PPO on imagined WM rollouts without confidence
   # weighting or uncertainty-triggered truncation.
   use_uncertainty_aware_methods: false
+
+  # Self-ensemble uncertainty from repeated stochastic WM inference.
+  self_ensemble_inferences: 5  # Number of self-ensemble inferences
+  self_ensemble_component_weights:  # Relative weighting of different components for when computing uncertainty
+    pacman_position: 1.0
+    ghost_positions: 0.4
+    food_mask: 1.0
+    power_timer: 0.0
+  running_mean_momentum: 0.99  # Momentum for normalizing self-ensemble uncertainty estimates
 
   # Confidence-weighted PPO updates.
   confidence_weight_ppo: true
@@ -48,19 +57,7 @@ world_model:
 
   # Adaptive imagined-rollout truncation.
   adaptive_rollout_truncation: true
-  rule_threshold: 2.0
-  secondary_rule_threshold: 1.0
-  secondary_prior_threshold: 2.0
-
-  # Reliability score normalization and components.
-  running_mean_momentum: 0.99
-  use_prior_entropy: true
-  wall_violation_penalty: 1.0
-  bounds_violation_penalty: 1.0
-  food_appearance_penalty: 1.0
-  invalid_food_removal_penalty: 1.0
-  enable_collision_done_check: true
-  collision_done_penalty: 1.0
+  self_ensemble_threshold: 2.0  # Cutoff for adaptive rollout truncation
 
 train:
   num_steps_per_env: 128  # Number of steps to collect per environment before updating

@@ -47,7 +47,7 @@ PY
 - `world_model.use_wm: false` keeps the current ground-truth environment training path.
 - `world_model.use_wm: true` trains PPO from Dreamer imagined transitions using the same `env` layout, spawn, action-space, and episode-length settings for WM inference setup.
 - `world_model.use_uncertainty_aware_methods: false` is the vanilla WM-PPO ablation: imagined rollouts are used, but PPO losses are not confidence-weighted and rollouts are not truncated by uncertainty.
-- `world_model.use_uncertainty_aware_methods: true` enables confidence-weighted PPO updates and adaptive imagined-rollout truncation.
+- `world_model.use_uncertainty_aware_methods: true` enables self-ensemble confidence-weighted PPO updates and adaptive imagined-rollout truncation.
 
 The uncertainty-aware method is described in [`docs/uncertainty_aware_wm_rl.md`](../docs/uncertainty_aware_wm_rl.md).
 
@@ -69,12 +69,19 @@ world_model:
   use_uncertainty_aware_methods: false
 ```
 
-Set these config values for reliability-aware WM-PPO:
+Set these config values for self-ensemble uncertainty-aware WM-PPO:
 
 ```yaml
 world_model:
   use_wm: true
   use_uncertainty_aware_methods: true
+  self_ensemble_inferences: 5
+  self_ensemble_threshold: 2.0
+  self_ensemble_component_weights:
+    pacman_position: 1.0
+    ghost_positions: 1.0
+    food_mask: 1.0
+    power_timer: 1.0
 ```
 
 ## Train

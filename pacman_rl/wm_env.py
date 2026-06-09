@@ -5,7 +5,6 @@ from typing import Any
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from tensordict import TensorDict
 
 from rsl_rl.env import VecEnv
@@ -20,8 +19,13 @@ from world_model.dreamer.rssm import FOOD_SLICE, PAC_SLICE, WALL_SLICE
 NOOP_ACTION = int(Action.NOOP)
 
 
-from pacman_rl.wm_reliability import ReliabilityStats, RuleBasedTransitionScorer, RunningMean
 from pacman_rl.wm_rewards import DecodedStateRewardComputer
+from pacman_rl.wm_uncertainty import (
+    SelfEnsembleStats,
+    RunningMean,
+    component_weighted_decoded_state_variance,
+    self_ensemble_stats,
+)
 
 
 class RslPacmanDreamerVecEnv(VecEnv):
@@ -39,21 +43,18 @@ class RslPacmanDreamerVecEnv(VecEnv):
         self.unwrapped = self
 
         self.use_uncertainty = bool(self.wm_cfg.get("use_uncertainty_aware_methods", False))
-        self.use_prior_entropy = bool(self.wm_cfg.get("use_prior_entropy", True))
         self.confidence_alpha = float(self.wm_cfg.get("confidence_alpha", 0.5))
         self.min_confidence = float(self.wm_cfg.get("min_confidence", 0.1))
-        self.rule_threshold = float(self.wm_cfg.get("rule_threshold", 2.0))
-        self.secondary_rule_threshold = float(self.wm_cfg.get("secondary_rule_threshold", 1.0))
-        self.secondary_prior_threshold = float(self.wm_cfg.get("secondary_prior_threshold", 2.0))
+        self.self_ensemble_inferences = max(1, int(self.wm_cfg.get("self_ensemble_inferences", 5)))
+        self.self_ensemble_threshold = float(self.wm_cfg.get("self_ensemble_threshold", 2.0))
+        self.self_ensemble_component_weights = self._self_ensemble_component_weights(self.wm_cfg)
         self.continue_threshold = float(self.wm_cfg.get("continue_threshold", 0.5))
         self.reward_source = str(self.wm_cfg.get("reward_source", "reward_head"))
         if self.reward_source not in {"reward_head", "decoded_rules"}:
             raise ValueError("world_model.reward_source must be one of: reward_head, decoded_rules")
         self.log_reward_sources = bool(self.wm_cfg.get("log_reward_sources", True))
         momentum = float(self.wm_cfg.get("running_mean_momentum", 0.99))
-        self.rule_mean = RunningMean(momentum=momentum, device=self.device)
-        self.prior_mean = RunningMean(momentum=momentum, device=self.device)
-        self.scorer = RuleBasedTransitionScorer(self.wm_cfg)
+        self.uncertainty_mean = RunningMean(momentum=momentum, device=self.device)
         self.decoded_reward_computer = DecodedStateRewardComputer(self.cfg)
 
         self.envs = [self._make_seed_env() for _ in range(self.num_envs)]
@@ -85,21 +86,29 @@ class RslPacmanDreamerVecEnv(VecEnv):
         h_next = self.model.seq(self._h, self.model._flat(self._z), action_ids, self._e)
         prior_logits = self.model.prior(h_next)
         dist = OneHotCategoricalST(prior_logits, self.model.cfg.unimix)
-        z_next = dist.mode() if bool(self.wm_cfg.get("deterministic_latent", False)) else dist.sample_st()
+        deterministic_latent = bool(self.wm_cfg.get("deterministic_latent", False))
+        ensemble_inferences = self.self_ensemble_inferences if self.use_uncertainty else 1
+        z_samples = []
+        pred_obs_samples = []
+        for _ in range(ensemble_inferences):
+            z_sample = dist.mode() if deterministic_latent else dist.sample_st()
+            z_samples.append(z_sample)
+            pred_dyn_sample = self.model.decode_state(h_next, self.model._flat(z_sample))
+            pred_obs_samples.append(self._full_state(pred_dyn_sample))
+
+        z_next = z_samples[0]
         z_flat = self.model._flat(z_next)
         reward_head = self.model.reward_from_logits(self.model.reward_head(h_next, z_flat)).float()
         cont_logits = self.model.cont_head(h_next, z_flat)
         cont = torch.sigmoid(cont_logits)
-        done_prob = 1.0 - cont
-        pred_dyn = self.model.decode_state(h_next, z_flat)
-        pred_obs = self._full_state(pred_dyn)
+        pred_obs = pred_obs_samples[0]
 
-        reliability = self._reliability(prev_obs, pred_obs, action_ids, prior_logits, done_prob)
+        uncertainty = self._self_ensemble_uncertainty(torch.stack(pred_obs_samples, dim=0))
         wm_done = cont < self.continue_threshold
         timeout = self.episode_length_buf + 1 >= self.max_episode_length
         base_dones = wm_done | timeout
         if self.use_uncertainty and bool(self.wm_cfg.get("adaptive_rollout_truncation", True)):
-            base_dones = base_dones | reliability.rule_truncate | reliability.secondary_truncate
+            base_dones = base_dones | uncertainty.truncate
 
         decoded_reward = self.decoded_reward_computer.compute(
             prev_obs,
@@ -138,14 +147,12 @@ class RslPacmanDreamerVecEnv(VecEnv):
 
         extras: dict[str, Any] = {
             "time_outs": torch.zeros(self.num_envs, dtype=torch.bool, device=self.device),
-            "wm_confidence": reliability.confidence,
+            "wm_confidence": uncertainty.confidence,
             "log": {
-                "/wm/u_rule": reliability.u_rule,
-                "/wm/u_rule_norm": reliability.u_rule_norm,
-                "/wm/u_total": reliability.u_total,
-                "/wm/confidence": reliability.confidence,
-                "/wm/rule_truncation_rate": reliability.rule_truncate.float(),
-                "/wm/secondary_truncation_rate": reliability.secondary_truncate.float(),
+                "/wm/self_ensemble_uncertainty": uncertainty.uncertainty,
+                "/wm/self_ensemble_uncertainty_norm": uncertainty.uncertainty_norm,
+                "/wm/confidence": uncertainty.confidence,
+                "/wm/self_ensemble_truncation_rate": uncertainty.truncate.float(),
                 "/pacman/win_rate": decoded_reward.win,
                 "/pacman/death_rate": decoded_reward.death,
                 "/pacman/timeout_failure_rate": timeout.float(),
@@ -161,8 +168,6 @@ class RslPacmanDreamerVecEnv(VecEnv):
                     (self.num_envs,), float(self.reward_source == "decoded_rules"), dtype=torch.float32, device=self.device
                 ),
             })
-        if reliability.u_prior_norm is not None:
-            extras["log"]["/wm/u_prior_norm"] = reliability.u_prior_norm
         if completed_returns:
             extras["episode"] = {
                 "return": torch.tensor(completed_returns, dtype=torch.float32, device=self.device),
@@ -231,34 +236,29 @@ class RslPacmanDreamerVecEnv(VecEnv):
     def _full_state(self, dyn: torch.Tensor) -> torch.Tensor:
         return torch.cat([dyn[:, :459], self._wall, dyn[:, 459:460]], dim=-1).clamp(-5.0, 5.0)
 
-    def _reliability(
-        self,
-        prev_obs: torch.Tensor,
-        pred_obs: torch.Tensor,
-        actions: torch.Tensor,
-        prior_logits: torch.Tensor,
-        done_prob: torch.Tensor,
-    ) -> ReliabilityStats:
+    @staticmethod
+    def _self_ensemble_component_weights(wm_cfg: dict[str, Any]) -> dict[str, float]:
+        weights = wm_cfg.get("self_ensemble_component_weights", {}) or {}
+        if not isinstance(weights, dict):
+            raise ValueError("world_model.self_ensemble_component_weights must be a mapping")
+        allowed = {"pacman_position", "ghost_positions", "food_mask", "power_timer"}
+        unknown = set(weights) - allowed
+        if unknown:
+            raise ValueError(f"Unknown self-ensemble component weights: {sorted(unknown)}")
+        return {name: float(value) for name, value in weights.items()}
+
+    def _self_ensemble_uncertainty(self, decoded_samples: torch.Tensor) -> SelfEnsembleStats:
         if not self.use_uncertainty:
             zeros = torch.zeros(self.num_envs, dtype=torch.float32, device=self.device)
             ones = torch.ones(self.num_envs, dtype=torch.float32, device=self.device)
-            return ReliabilityStats(zeros, zeros, None, None, zeros, ones, zeros.bool(), zeros.bool())
+            return SelfEnsembleStats(zeros, zeros, ones, zeros.bool())
 
-        u_rule = self.scorer.score(prev_obs, pred_obs, actions, done_prob=done_prob)
-        u_rule_norm = self.rule_mean.normalize(u_rule)
-        u_prior = None
-        u_prior_norm = None
-        if self.use_prior_entropy and prior_logits is not None:
-            probs = F.softmax(prior_logits, dim=-1)
-            ent = -(probs * torch.log(probs + 1e-8)).sum(dim=-1)
-            u_prior = ent.mean(dim=-1)
-            u_prior_norm = self.prior_mean.normalize(u_prior)
-            u_total = 2.0 * u_rule_norm + u_prior_norm
-            secondary = (u_rule_norm > self.secondary_rule_threshold) & (u_prior_norm > self.secondary_prior_threshold)
-        else:
-            u_total = u_rule_norm
-            secondary = torch.zeros_like(u_rule_norm, dtype=torch.bool)
-
-        confidence = torch.exp(-self.confidence_alpha * u_total).clamp(self.min_confidence, 1.0).detach()
-        rule_truncate = u_rule_norm > self.rule_threshold
-        return ReliabilityStats(u_rule, u_rule_norm, u_prior, u_prior_norm, u_total, confidence, rule_truncate, secondary)
+        uncertainty = component_weighted_decoded_state_variance(decoded_samples, self.self_ensemble_component_weights)
+        uncertainty_norm = self.uncertainty_mean.normalize(uncertainty)
+        return self_ensemble_stats(
+            uncertainty,
+            uncertainty_norm,
+            alpha=self.confidence_alpha,
+            min_confidence=self.min_confidence,
+            threshold=self.self_ensemble_threshold,
+        )
