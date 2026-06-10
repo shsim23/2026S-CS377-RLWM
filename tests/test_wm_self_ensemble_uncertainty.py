@@ -21,10 +21,10 @@ def test_single_self_ensemble_inference_has_zero_uncertainty():
 
     uncertainty = decoded_state_variance(samples)
     uncertainty_norm = RunningMean(device="cpu").normalize(uncertainty)
-    stats = self_ensemble_stats(uncertainty, uncertainty_norm, alpha=0.5, min_confidence=0.1, threshold=2.0)
+    stats = self_ensemble_stats(uncertainty, uncertainty_norm, alpha=0.5, confidence_weight_scale=2.0, threshold=2.0)
 
     assert uncertainty.tolist() == pytest.approx([0.0, 0.0])
-    assert stats.confidence.tolist() == pytest.approx([1.0, 1.0])
+    assert stats.confidence.tolist() == pytest.approx([2.0 * torch.sigmoid(torch.tensor(0.5)).item()] * 2)
     assert not stats.truncate.any()
 
 
@@ -79,19 +79,23 @@ def test_zero_component_weights_produce_zero_uncertainty():
     assert uncertainty.tolist() == pytest.approx([0.0, 0.0])
 
 
-def test_confidence_decreases_as_uncertainty_increases():
+def test_sigmoid_confidence_weighting_midpoint_and_monotonicity():
     uncertainty_norm = torch.tensor([0.0, 1.0, 3.0])
 
-    confidence = confidence_from_uncertainty(uncertainty_norm, alpha=0.5, min_confidence=0.1)
+    confidence = confidence_from_uncertainty(uncertainty_norm, alpha=0.5, scale=2.0)
 
-    assert confidence[0].item() == pytest.approx(1.0)
+    assert confidence[1].item() == pytest.approx(1.0)
+    assert confidence[0].item() > 1.0
+    assert confidence[2].item() < 1.0
     assert confidence[0] > confidence[1] > confidence[2]
+    assert torch.all(confidence > 0.0)
+    assert torch.all(confidence < 2.0)
 
 
 def test_self_ensemble_threshold_is_the_only_truncation_rule():
     uncertainty = torch.tensor([0.1, 5.0])
     uncertainty_norm = torch.tensor([0.5, 2.5])
 
-    stats = self_ensemble_stats(uncertainty, uncertainty_norm, alpha=0.5, min_confidence=0.1, threshold=2.0)
+    stats = self_ensemble_stats(uncertainty, uncertainty_norm, alpha=0.5, confidence_weight_scale=2.0, threshold=2.0)
 
     assert stats.truncate.tolist() == [False, True]

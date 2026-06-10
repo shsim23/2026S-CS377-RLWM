@@ -44,7 +44,7 @@ class RslPacmanDreamerVecEnv(VecEnv):
 
         self.use_uncertainty = bool(self.wm_cfg.get("use_uncertainty_aware_methods", False))
         self.confidence_alpha = float(self.wm_cfg.get("confidence_alpha", 0.5))
-        self.min_confidence = float(self.wm_cfg.get("min_confidence", 0.1))
+        self.confidence_weight_scale = float(self.wm_cfg.get("confidence_weight_scale", 2.0))
         self.self_ensemble_inferences = max(1, int(self.wm_cfg.get("self_ensemble_inferences", 5)))
         self.self_ensemble_threshold = float(self.wm_cfg.get("self_ensemble_threshold", 2.0))
         self.self_ensemble_component_weights = self._self_ensemble_component_weights(self.wm_cfg)
@@ -259,6 +259,6 @@ class RslPacmanDreamerVecEnv(VecEnv):
             uncertainty,
             uncertainty_norm,
             alpha=self.confidence_alpha,
-            min_confidence=self.min_confidence,
+            confidence_weight_scale=self.confidence_weight_scale,
             threshold=self.self_ensemble_threshold,
         )

@@ -76,6 +76,8 @@ world_model:
   use_wm: true
   use_uncertainty_aware_methods: true
   self_ensemble_inferences: 5
+  confidence_weight_scale: 2.0
+  confidence_alpha: 0.5  # 1.0 is recommended for sigmoid confidence weighting
   self_ensemble_threshold: 2.0
   self_ensemble_component_weights:
     pacman_position: 1.0

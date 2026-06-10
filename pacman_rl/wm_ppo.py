@@ -78,7 +78,7 @@ class ConfidenceWeightedPPO(PPO):
     ) -> None:
         confidence = extras.get("wm_confidence")
         if confidence is not None:
-            self.transition.confidence = confidence.detach().clamp(0.0, 1.0)
+            self.transition.confidence = confidence.detach()
         super().process_env_step(obs, rewards, dones, extras)
 
     def update(self) -> dict[str, float]:  # noqa: C901
@@ -149,7 +149,7 @@ class ConfidenceWeightedPPO(PPO):
 
             ratio = torch.exp(actions_log_prob - torch.squeeze(batch.old_actions_log_prob))
             advantages = torch.squeeze(batch.advantages)
-            confidence_flat = torch.squeeze(confidence).clamp(0.0, 1.0)
+            confidence_flat = torch.squeeze(confidence)
             surrogate = -advantages * ratio
             surrogate_clipped = -advantages * torch.clamp(ratio, 1.0 - self.clip_param, 1.0 + self.clip_param)
             surrogate_loss_per_sample = torch.max(surrogate, surrogate_clipped)

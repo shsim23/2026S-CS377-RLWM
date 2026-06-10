@@ -29,15 +29,17 @@ u_norm = u / (running_mean_u + 1e-8)
 
 The weights are configured under `world_model.self_ensemble_component_weights`. Wall-mask dimensions are ignored because they are static layout context, not stochastic predictions.
 
-With `self_ensemble_inferences: 1`, the variance is zero, so uncertainty-aware weighting is effectively neutral.
+With `self_ensemble_inferences: 1`, the variance is zero, so sigmoid confidence weighting treats the transition as below-average uncertainty.
 
-## Confidence-Weighted PPO Updates
+## Sigmoid Confidence-Weighted PPO Updates
 
-Transition confidence is computed from normalized self-ensemble uncertainty:
+Transition confidence is computed from normalized self-ensemble uncertainty with smooth bounded sigmoid confidence weighting:
 
 ```text
-confidence = exp(-confidence_alpha * u_norm).clamp(min_confidence, 1.0).detach()
+confidence = confidence_weight_scale * sigmoid(-confidence_alpha * (u_norm - 1)).detach()
 ```
+
+The confidence is in `(0, confidence_weight_scale)` and equals `confidence_weight_scale / 2` when `u_norm == 1`. With the default scale `2.0`, average uncertainty has weight `1.0`, below-average uncertainty has weight above `1.0`, and above-average uncertainty has weight below `1.0`.
 
 PPO policy and value losses are weighted by confidence, but entropy loss is not weighted:
 
@@ -47,7 +49,7 @@ value_loss = mean(confidence * value_loss_per_sample)
 loss = policy_loss + value_coef * value_loss - entropy_coef * mean(entropy)
 ```
 
-This lets stable imagined transitions contribute normally while reducing gradient pressure from high-disagreement transitions.
+This increases gradient pressure from below-average-uncertainty imagined transitions while reducing gradient pressure from high-disagreement transitions.
 
 ## Adaptive Imagined-Rollout Truncation
 

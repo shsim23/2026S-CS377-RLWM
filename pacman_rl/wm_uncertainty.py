@@ -84,18 +84,18 @@ def component_weighted_decoded_state_variance(
 def confidence_from_uncertainty(
     uncertainty_norm: torch.Tensor,
     alpha: float,
-    min_confidence: float,
+    scale: float,
 ) -> torch.Tensor:
-    return torch.exp(-float(alpha) * uncertainty_norm).clamp(float(min_confidence), 1.0).detach()
+    return (float(scale) * torch.sigmoid(-float(alpha) * (uncertainty_norm - 1.0))).detach()
 
 
 def self_ensemble_stats(
     uncertainty: torch.Tensor,
     uncertainty_norm: torch.Tensor,
     alpha: float,
-    min_confidence: float,
+    confidence_weight_scale: float,
     threshold: float,
 ) -> SelfEnsembleStats:
-    confidence = confidence_from_uncertainty(uncertainty_norm, alpha, min_confidence)
+    confidence = confidence_from_uncertainty(uncertainty_norm, alpha, confidence_weight_scale)
     truncate = uncertainty_norm > float(threshold)
     return SelfEnsembleStats(uncertainty, uncertainty_norm, confidence, truncate)

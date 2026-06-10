@@ -39,10 +39,10 @@ world_model:
   # weighting or uncertainty-triggered truncation.
   use_uncertainty_aware_methods: false
 
-  # Confidence-weighted PPO updates.
+  # Sigmoid confidence-weighted PPO updates. confidence_alpha=1.0 is recommended for this formula.
   confidence_weight_ppo: false
   confidence_alpha: 0.5
-  min_confidence: 0.1
+  confidence_weight_scale: 2.0
 
   # Self-ensemble uncertainty from repeated stochastic WM inference.
   self_ensemble_inferences: 5
