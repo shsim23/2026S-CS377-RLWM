@@ -50,9 +50,9 @@ world_model:
     power_timer: 0.0
   running_mean_momentum: 0.99  # Momentum for normalizing self-ensemble uncertainty estimates
 
-  # Sigmoid confidence-weighted PPO updates. confidence_alpha=1.0 is recommended for this formula.
+  # Sigmoid confidence-weighted PPO updates.
   confidence_weight_ppo: true
-  confidence_alpha: 0.5
+  confidence_alpha: 1.0  # confidence_alpha=1.0 is recommended.
   confidence_weight_scale: 2.0
 
   # Adaptive imagined-rollout truncation.
