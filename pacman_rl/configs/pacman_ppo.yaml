@@ -1,5 +1,5 @@
 device: cuda
-iterations: 4000  # Total number of training iterations
+iterations: 10000  # Total number of training iterations
 log_root: logs/pacman_rl
 
 env:
@@ -53,15 +53,15 @@ world_model:
   # Sigmoid confidence-weighted PPO updates.
   confidence_weight_ppo: true
   confidence_alpha: 1.0  # confidence_alpha=1.0 is recommended.
-  confidence_weight_scale: 2.0
+  confidence_weight_scale: 2.0  # Scales the range of confidence weights to [0, confidence_weight_scale]
 
   # Adaptive imagined-rollout truncation.
   adaptive_rollout_truncation: true
-  self_ensemble_threshold: 2.0  # Cutoff for adaptive rollout truncation
+  self_ensemble_threshold: 100.0  # Cutoff for adaptive rollout truncation
 
 train:
   num_steps_per_env: 128  # Number of steps to collect per environment before updating
-  save_interval: 200  # Save checkpoint every N iterations
+  save_interval: 500  # Save checkpoint every N iterations
   logger: tensorboard
   obs_groups:
     actor: [policy]

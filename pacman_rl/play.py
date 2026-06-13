@@ -52,21 +52,25 @@ def main() -> None:
 
     returns = []
     lengths = []
+    pellets_remaining = []
     wins = 0
     for ep in range(args.episodes):
         stats = play_episode(policy, env_cfg, device, args.seed + ep, args, ep, play_dir)
         returns.append(stats["return"])
         lengths.append(stats["length"])
+        pellets_remaining.append(stats["pellets_remaining"])
         wins += int(stats["won"])
         print(
             f"episode={ep} return={stats['return']:.2f} "
-            f"length={stats['length']:.0f} won={bool(stats['won'])}"
+            f"length={stats['length']:.0f} won={bool(stats['won'])} "
+            f"pellets_remaining={stats['pellets_remaining']:.0f}"
         )
 
     print(
         f"mean_return={sum(returns) / max(len(returns), 1):.2f} "
         f"mean_length={sum(lengths) / max(len(lengths), 1):.1f} "
-        f"win_rate={wins / max(len(returns), 1):.3f}"
+        f"win_rate={wins / max(len(returns), 1):.3f} "
+        f"mean_pellets_remaining={sum(pellets_remaining) / max(len(pellets_remaining), 1):.1f}"
     )
 
 
@@ -85,6 +89,7 @@ def play_episode(
     total_reward = 0.0
     steps = 0
     won = False
+    pellets_remaining = 0.0
     obs, _ = env.reset(seed=seed)
     try:
         max_steps = int(env_cfg.get("max_steps", env_cfg.get("episode", {}).get("max_steps", 500)))
@@ -100,6 +105,7 @@ def play_episode(
             total_reward += float(reward)
             steps += 1
             won = bool(info.get("event", {}).get("won", False))
+            pellets_remaining = float(info.get("pellets_remaining", pellets_remaining))
             if terminated or truncated:
                 frame = env.render()
                 if args.video and frame is not None:
@@ -113,7 +119,12 @@ def play_episode(
         save_video(frames, out, fps=args.video_fps)
         print(f"Saved video to {out}")
 
-    return {"return": total_reward, "length": float(steps), "won": float(won)}
+    return {
+        "return": total_reward,
+        "length": float(steps),
+        "won": float(won),
+        "pellets_remaining": pellets_remaining,
+    }
 
 
 def _infer_play_dir(checkpoint: Path) -> Path:

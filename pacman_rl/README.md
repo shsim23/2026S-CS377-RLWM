@@ -145,6 +145,18 @@ python pacman_rl/play.py \
 
 Remove `--headless` to render with a Pygame window when a display is available. Pass `--video` to save `.mp4` files under the run folder.
 
+To play in a WM-dreamed environment, use the following command:
+
+```bash
+python scripts/play_wm_dream.py \
+    --config pacman_rl/configs/pacman_ppo.yaml \
+    --checkpoint logs/pacman_rl/vanilla_rlwm_small_open_2/train/checkpoints/model_3999.pt \
+    --episodes 5 \
+    --device cuda \
+    --headless \
+    --out-dir logs/pacman_rl/vanilla_rlwm_small_open_2/play_wm
+```
+
 ## Discrete Action Handling
 
 rsl_rl's `MLPModel` emits five logits and `CategoricalDistribution` samples one integer action id:
